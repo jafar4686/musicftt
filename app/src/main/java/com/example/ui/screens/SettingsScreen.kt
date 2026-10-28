@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -64,8 +65,9 @@ fun SettingsScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .testTag("settings_screen"),
-        contentPadding = PaddingValues(bottom = 96.dp)
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         // Screen Header
         item {
@@ -194,9 +196,9 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(text = "Dynamic Island Overlay", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextCream)
+                            Text(text = "Dynamic Island Wave Capsule", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextCream)
                             Text(
-                                text = "Appears as a small circle; tap to enlarge into an island when exiting the app",
+                                text = "Live animated sound wave pill at top of screen; tap to expand playback controls",
                                 fontSize = 11.sp,
                                 color = TextMutedSand
                             )
@@ -215,62 +217,6 @@ fun SettingsScreen(
                             uncheckedTrackColor = WarmCardSurface
                         )
                     )
-                }
-            }
-
-            // Overlay permission info if applicable
-            val context = androidx.compose.ui.platform.LocalContext.current
-            val hasOverlayPermission = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M ||
-                    android.provider.Settings.canDrawOverlays(context)
-
-            if (!hasOverlayPermission) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = DeepWarmBrown,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp)
-                        .border(1.dp, CaramelGold.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Overlay Permission Required",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = CaramelGold
-                            )
-                            Text(
-                                text = "Grant 'Display over other apps' to show the floating island circle on home screen and over other apps",
-                                fontSize = 11.sp,
-                                color = TextMutedSand
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                                    val intent = android.content.Intent(
-                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        android.net.Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                }
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CaramelGold, contentColor = EspressoDark),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text(text = "Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
                 }
             }
 

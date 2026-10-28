@@ -147,12 +147,11 @@ fun MainScreenContent(viewModel: MusicViewModel) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = CocoaBrown,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.navigationBars)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 // Mini Player Bar
                 if (playbackState.currentTrack != null && !playbackState.isFullPlayerVisible) {
@@ -164,7 +163,7 @@ fun MainScreenContent(viewModel: MusicViewModel) {
                     )
                 }
 
-                // Bottom Navigation
+                // Bottom Navigation Bar
                 NavigationBar(
                     containerColor = DeepWarmBrown,
                     contentColor = TextCream,

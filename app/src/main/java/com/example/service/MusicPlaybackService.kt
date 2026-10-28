@@ -22,7 +22,8 @@ import kotlinx.coroutines.launch
 class MusicPlaybackService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
-    private var floatingIslandManager: FloatingIslandManager? = null
+    private var lastTrackId: String? = null
+    private var lastIsPlaying: Boolean? = null
 
     companion object {
         const val CHANNEL_ID = "aura_playback_channel"
@@ -40,30 +41,37 @@ class MusicPlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        floatingIslandManager = FloatingIslandManager(this)
 
         // Ensure service is immediately foregrounded with fallback notification
         val state = PlaybackManager.playbackState.value
+        val track = state.currentTrack
+        lastTrackId = track?.id
+        lastIsPlaying = state.isPlaying
         val initialNotification = buildNotification(
-            title = state.currentTrack?.title ?: "Aura Music Player",
-            artist = state.currentTrack?.artist ?: "Background Playback Active",
+            title = track?.title ?: "Aura Music Player",
+            artist = track?.artist ?: "Background Playback Active",
             isPlaying = state.isPlaying
         )
         startForegroundSafely(initialNotification)
 
-        // Observe playback state changes to refresh notification and floating dynamic island
+        // Observe playback state changes to refresh notification ONLY when track or playing state changes
         serviceScope.launch {
             PlaybackManager.playbackState.collectLatest { curState ->
-                if (curState.currentTrack != null) {
-                    val notification = buildNotification(
-                        title = curState.currentTrack.title,
-                        artist = curState.currentTrack.artist,
-                        isPlaying = curState.isPlaying
-                    )
-                    startForegroundSafely(notification)
-                    floatingIslandManager?.updateState(curState)
+                val curTrack = curState.currentTrack
+                if (curTrack != null) {
+                    if (curTrack.id != lastTrackId || curState.isPlaying != lastIsPlaying) {
+                        lastTrackId = curTrack.id
+                        lastIsPlaying = curState.isPlaying
+                        val notification = buildNotification(
+                            title = curTrack.title,
+                            artist = curTrack.artist,
+                            isPlaying = curState.isPlaying
+                        )
+                        startForegroundSafely(notification)
+                    }
                 } else {
-                    floatingIslandManager?.removeOverlay()
+                    lastTrackId = null
+                    lastIsPlaying = null
                     try {
                         stopForeground(STOP_FOREGROUND_REMOVE)
                     } catch (_: Exception) {}
@@ -91,12 +99,16 @@ class MusicPlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val curState = PlaybackManager.playbackState.value
         val track = curState.currentTrack
-        val notification = buildNotification(
-            title = track?.title ?: "Aura Music Player",
-            artist = track?.artist ?: "Playing in Background",
-            isPlaying = curState.isPlaying
-        )
-        startForegroundSafely(notification)
+        if (track != null && (track.id != lastTrackId || curState.isPlaying != lastIsPlaying)) {
+            lastTrackId = track.id
+            lastIsPlaying = curState.isPlaying
+            val notification = buildNotification(
+                title = track.title,
+                artist = track.artist,
+                isPlaying = curState.isPlaying
+            )
+            startForegroundSafely(notification)
+        }
 
         when (intent?.action) {
             ACTION_PLAY -> PlaybackManager.play(this)
@@ -106,14 +118,11 @@ class MusicPlaybackService : Service() {
             ACTION_PREV -> PlaybackManager.previous(this)
             ACTION_STOP -> {
                 PlaybackManager.pause(this)
-                floatingIslandManager?.removeOverlay()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
             ACTION_UPDATE_NOTIFICATION -> {
-                if (track != null) {
-                    floatingIslandManager?.updateState(curState)
-                }
+                // Handled reactively
             }
         }
         return START_STICKY
@@ -123,10 +132,10 @@ class MusicPlaybackService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Aura Playback & Dynamic Controls",
+                "Aura Playback Controls",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Seamless background playback controls and Dynamic Island notification"
+                description = "Seamless background playback controls and notification"
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -179,7 +188,6 @@ class MusicPlaybackService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        floatingIslandManager?.removeOverlay()
         serviceScope.cancel()
     }
 
