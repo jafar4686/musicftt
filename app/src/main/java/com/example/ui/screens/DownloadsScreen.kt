@@ -21,47 +21,40 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.DownloadItem
 import com.example.model.DownloadStatus
 import com.example.model.Track
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.EmeraldGlow
-import com.example.ui.theme.HologramPink
-import com.example.ui.theme.NeonPurple
-import com.example.ui.theme.ObsidianBlack
-import com.example.ui.theme.SoftViolet
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.BorderWarm
+import com.example.ui.theme.CardElevated
+import com.example.ui.theme.CaramelGold
+import com.example.ui.theme.DeepWarmBrown
+import com.example.ui.theme.EspressoDark
+import com.example.ui.theme.TextCream
+import com.example.ui.theme.TextMutedSand
+import com.example.ui.theme.WarmCardSurface
 
 @Composable
 fun DownloadsScreen(
@@ -75,17 +68,7 @@ fun DownloadsScreen(
     onClearAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var filterType by remember { mutableStateOf("All") } // "All", "Audio", "Video"
-
-    val downloadedTracks = tracks.filter { track ->
-        track.isDownloaded || downloads.any { it.trackId == track.id && it.status == DownloadStatus.COMPLETED }
-    }
-
-    val filteredList = when (filterType) {
-        "Audio" -> downloadedTracks.filter { !it.isVideo }
-        "Video" -> downloadedTracks.filter { it.isVideo }
-        else -> downloadedTracks
-    }
+    val downloadedTracks = tracks.filter { it.isDownloaded }
 
     LazyColumn(
         modifier = modifier
@@ -101,28 +84,28 @@ fun DownloadsScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "OFFLINE VAULT",
+                    text = "STORAGE VAULT",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = EmeraldGlow,
+                    color = CaramelGold,
                     letterSpacing = 2.sp
                 )
                 Text(
                     text = "Downloaded Media",
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
+                    fontWeight = FontWeight.Bold,
+                    color = TextCream
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Storage Card
                 Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF13141F),
+                    shape = RoundedCornerShape(16.dp),
+                    color = DeepWarmBrown,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(0.5.dp, Color(0xFF26283C), RoundedCornerShape(18.dp))
+                        .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -135,43 +118,21 @@ fun DownloadsScreen(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
                                         .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(EmeraldGlow.copy(alpha = 0.2f))
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(WarmCardSurface)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudDone,
-                                        contentDescription = null,
-                                        tint = EmeraldGlow,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(20.dp))
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
-                                    Text(
-                                        text = "Offline Storage Used",
-                                        fontSize = 12.sp,
-                                        color = TextSecondary
-                                    )
-                                    Text(
-                                        text = "$storageSizeFormatted / Local Vault",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                    Text(text = "Local Device Storage", fontSize = 11.sp, color = TextMutedSand)
+                                    Text(text = storageSizeFormatted, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextCream)
                                 }
                             }
 
                             if (downloadedTracks.isNotEmpty()) {
-                                IconButton(
-                                    onClick = onClearAll,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Clear all downloads",
-                                        tint = TextSecondary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                IconButton(onClick = onClearAll, modifier = Modifier.size(32.dp)) {
+                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Clear all", tint = TextMutedSand, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -179,13 +140,13 @@ fun DownloadsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         LinearProgressIndicator(
-                            progress = { (downloadedTracks.size / 10f).coerceIn(0.05f, 1f) },
+                            progress = { (downloadedTracks.size / 10f).coerceIn(0.08f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = EmeraldGlow,
-                            trackColor = Color(0xFF242636)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = CaramelGold,
+                            trackColor = BorderWarm
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -194,69 +155,38 @@ fun DownloadsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = "${downloadedTracks.size} files available offline",
-                                fontSize = 11.sp,
-                                color = EmeraldGlow
-                            )
-                            Text(
-                                text = "Zero data required",
-                                fontSize = 11.sp,
-                                color = SoftViolet
-                            )
+                            Text(text = "${downloadedTracks.size} items saved offline", fontSize = 11.sp, color = CaramelGold)
+                            Text(text = "Playable without internet", fontSize = 11.sp, color = TextMutedSand)
                         }
                     }
                 }
             }
         }
 
-        // Active downloads in progress (if any)
-        val inProgressDownloads = downloads.filter { it.status == DownloadStatus.DOWNLOADING }
-        if (inProgressDownloads.isNotEmpty()) {
+        // Active downloads
+        val activeDownloads = downloads.filter { it.status == DownloadStatus.DOWNLOADING }
+        if (activeDownloads.isNotEmpty()) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    Text(
-                        text = "Downloading Now (${inProgressDownloads.size})",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ElectricCyan
-                    )
+                    Text(text = "Downloading Now (${activeDownloads.size})", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CaramelGold)
                     Spacer(modifier = Modifier.height(6.dp))
-                    inProgressDownloads.forEach { item ->
+                    activeDownloads.forEach { dl ->
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF161726),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
+                            color = DeepWarmBrown,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).border(1.dp, BorderWarm, RoundedCornerShape(12.dp))
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = item.trackTitle,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    )
-                                    Text(
-                                        text = "${(item.progress * 100).toInt()}%",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ElectricCyan
-                                    )
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(text = dl.trackTitle, fontSize = 13.sp, color = TextCream, fontWeight = FontWeight.SemiBold)
+                                    Text(text = "${(dl.progress * 100).toInt()}%", fontSize = 12.sp, color = CaramelGold, fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 LinearProgressIndicator(
-                                    progress = { item.progress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(4.dp)
-                                        .clip(RoundedCornerShape(2.dp)),
-                                    color = ElectricCyan,
-                                    trackColor = Color(0xFF25273C)
+                                    progress = { dl.progress },
+                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                    color = CaramelGold,
+                                    trackColor = BorderWarm
                                 )
                             }
                         }
@@ -265,122 +195,53 @@ fun DownloadsScreen(
             }
         }
 
-        // Filter pills: All, Audio Only, Video Files
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("All", "Audio", "Video").forEach { f ->
-                    val isSelected = filterType == f
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { filterType = f },
-                        label = {
-                            Text(
-                                text = when (f) {
-                                    "All" -> "All (${downloadedTracks.size})"
-                                    "Audio" -> "Music Audio (${downloadedTracks.count { !it.isVideo }})"
-                                    "Video" -> "Video Files (${downloadedTracks.count { it.isVideo }})"
-                                    else -> f
-                                },
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = EmeraldGlow.copy(alpha = 0.2f),
-                            selectedLabelColor = EmeraldGlow,
-                            containerColor = Color(0xFF13141F),
-                            labelColor = TextSecondary
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = isSelected,
-                            borderColor = if (isSelected) EmeraldGlow else Color(0xFF222434)
-                        )
-                    )
-                }
-            }
-        }
-
-        // Empty State or Downloaded List
-        if (filteredList.isEmpty()) {
+        if (downloadedTracks.isEmpty()) {
             item {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 40.dp, start = 24.dp, end = 24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp, start = 24.dp, end = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(70.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF161726))
+                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(14.dp)).background(WarmCardSurface)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            tint = SoftViolet,
-                            modifier = Modifier.size(32.dp)
-                        )
+                        Icon(imageVector = Icons.Default.Download, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(30.dp))
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "No Offline Downloads Yet",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(text = "No Downloads Saved", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextCream)
                     Spacer(modifier = Modifier.height(6.dp))
-
                     Text(
-                        text = "Tap the download icon on any song or video file to store it locally for instant offline listening.",
-                        fontSize = 13.sp,
-                        color = TextSecondary,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        text = "Paste a TikTok or YouTube link on the Songs screen to download audio or video directly to your device.",
+                        fontSize = 12.sp,
+                        color = TextMutedSand,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
         } else {
-            items(filteredList) { track ->
+            items(downloadedTracks) { track ->
                 val isCurrent = currentTrack?.id == track.id
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFF141520),
+                    color = if (isCurrent) CardElevated else DeepWarmBrown,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 4.dp)
-                        .border(0.5.dp, Color(0xFF26283C), RoundedCornerShape(14.dp))
+                        .border(1.dp, if (isCurrent) CaramelGold.copy(alpha = 0.5f) else BorderWarm, RoundedCornerShape(14.dp))
                         .clickable { onPlayTrack(track) }
-                        .testTag("downloaded_track_${track.id}")
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (track.isVideo) HologramPink.copy(alpha = 0.2f) else EmeraldGlow.copy(alpha = 0.2f)
-                                )
+                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(WarmCardSurface)
                         ) {
                             if (track.isVideo) {
-                                Icon(imageVector = Icons.Default.Videocam, contentDescription = "Video", tint = HologramPink)
+                                Icon(imageVector = Icons.Default.Videocam, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(20.dp))
                             } else {
-                                Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Ready", tint = EmeraldGlow)
+                                Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(20.dp))
                             }
                         }
 
@@ -389,31 +250,23 @@ fun DownloadsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = track.title,
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isCurrent) ElectricCyan else Color.White,
+                                color = if (isCurrent) CaramelGold else TextCream,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${track.artist} • ${if (track.isVideo) "Video (24.5 MB)" else "Audio (6.2 MB)"}",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
+                                text = "${track.artist} • ${if (track.isVideo) "Video File" else "Audio MP3"}",
+                                fontSize = 11.sp,
+                                color = TextMutedSand,
                                 maxLines = 1
                             )
                         }
 
-                        IconButton(
-                            onClick = { onRemoveDownload(track.id) },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete download",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        IconButton(onClick = { onRemoveDownload(track.id) }, modifier = Modifier.size(34.dp)) {
+                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = TextMutedSand, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

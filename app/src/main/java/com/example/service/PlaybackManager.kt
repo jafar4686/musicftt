@@ -191,8 +191,12 @@ object PlaybackManager {
         _playbackState.update { it.copy(isDynamicIslandExpanded = expanded) }
     }
 
-    fun setDynamicIslandVisible(visible: Boolean) {
-        _playbackState.update { it.copy(isDynamicIslandVisible = visible) }
+    fun toggleDynamicIslandExpanded() {
+        _playbackState.update { it.copy(isDynamicIslandExpanded = !it.isDynamicIslandExpanded) }
+    }
+
+    fun setDynamicIslandEnabled(enabled: Boolean) {
+        _playbackState.update { it.copy(isDynamicIslandEnabled = enabled) }
     }
 
     fun setFullPlayerVisible(visible: Boolean) {

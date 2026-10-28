@@ -5,35 +5,35 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = ElectricCyan,
-    onPrimary = ObsidianBlack,
-    primaryContainer = SurfaceHighlight,
-    onPrimaryContainer = ElectricCyan,
-    secondary = NeonPurple,
-    onSecondary = Color.White,
-    secondaryContainer = SurfaceElevated,
-    onSecondaryContainer = SoftViolet,
-    tertiary = HologramPink,
+private val WarmBrownColorScheme = darkColorScheme(
+    primary = CaramelGold,
+    onPrimary = EspressoDark,
+    primaryContainer = CardHighlight,
+    onPrimaryContainer = WarmBeige,
+    secondary = MutedAmber,
+    onSecondary = EspressoDark,
+    secondaryContainer = WarmCardSurface,
+    onSecondaryContainer = WarmBeige,
+    tertiary = TerracottaAccent,
     onTertiary = Color.White,
-    background = ObsidianBlack,
-    onBackground = TextPrimary,
-    surface = DeepCharcoal,
-    onSurface = TextPrimary,
-    surfaceVariant = SurfaceDark,
-    onSurfaceVariant = TextSecondary,
-    outline = BorderSubtle,
-    outlineVariant = SurfaceHighlight
+    background = CocoaBrown,
+    onBackground = TextCream,
+    surface = DeepWarmBrown,
+    onSurface = TextCream,
+    surfaceVariant = WarmCardSurface,
+    onSurfaceVariant = TextMutedSand,
+    outline = BorderWarm,
+    outlineVariant = BorderSubtleWarm
 )
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = true, // Default to sleek minimalist dark aesthetic
-    dynamicColor: Boolean = false, // Keep intentional obsidian aesthetic
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = WarmBrownColorScheme,
         typography = Typography,
         content = content
     )

@@ -29,20 +29,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.PlaybackState
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.NeonPurple
-import com.example.ui.theme.ObsidianBlack
-import com.example.ui.theme.SoftViolet
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.BorderWarm
+import com.example.ui.theme.CardElevated
+import com.example.ui.theme.CaramelGold
+import com.example.ui.theme.DeepWarmBrown
+import com.example.ui.theme.EspressoDark
+import com.example.ui.theme.TextCream
+import com.example.ui.theme.TextMutedSand
+import com.example.ui.theme.WarmCardSurface
 
 @Composable
 fun MiniPlayerBar(
@@ -55,25 +55,24 @@ fun MiniPlayerBar(
     val track = playbackState.currentTrack ?: return
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF141520),
-        shadowElevation = 10.dp,
+        shape = RoundedCornerShape(14.dp),
+        color = DeepWarmBrown,
+        shadowElevation = 8.dp,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .border(0.5.dp, Color(0xFF282A3E), RoundedCornerShape(16.dp))
+            .border(1.dp, BorderWarm, RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .testTag("mini_player_bar")
     ) {
         Column {
-            // Track progress bar on top edge of mini player
             LinearProgressIndicator(
                 progress = { playbackState.progress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
-                color = ElectricCyan,
-                trackColor = Color(0xFF1C1D2A)
+                color = CaramelGold,
+                trackColor = BorderWarm
             )
 
             Row(
@@ -83,66 +82,50 @@ fun MiniPlayerBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Mini Art
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(NeonPurple, ElectricCyan)
-                            )
-                        )
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(WarmCardSurface)
                 ) {
-                    Text(
-                        text = when (track.genre) {
-                            "Cyberpunk" -> "⚡"
-                            "Chillhop" -> "🌧️"
-                            "Ambient" -> "🌌"
-                            "Synthwave" -> "🌆"
-                            else -> "🎵"
-                        },
-                        fontSize = 18.sp
-                    )
+                    Text(text = "🎵", fontSize = 18.sp)
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Track and Artist
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = track.title,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
+                        color = TextCream,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = track.artist,
                         fontSize = 11.sp,
-                        color = SoftViolet,
+                        color = TextMutedSand,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // Controls
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
-                            .background(ElectricCyan.copy(alpha = 0.2f))
+                            .background(CaramelGold)
                             .clickable { onTogglePlayPause() }
                     ) {
                         Icon(
                             imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(20.dp)
+                            tint = EspressoDark,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
@@ -150,13 +133,13 @@ fun MiniPlayerBar(
 
                     IconButton(
                         onClick = onNext,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Track",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            tint = TextCream,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }

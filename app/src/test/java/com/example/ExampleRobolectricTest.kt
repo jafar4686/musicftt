@@ -23,21 +23,20 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `repository loads curated playlists and supports creation`() {
+  fun `repository starts with zero tracks and downloads from link`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val repository = MusicRepository(context)
 
-    val initialPlaylists = repository.allPlaylists.value
-    assertTrue("Should have initial curated playlists", initialPlaylists.isNotEmpty())
+    assertEquals(0, repository.tracks.value.size)
 
-    val created = repository.createPlaylist(
-      title = "Night Drive",
-      description = "Cyberpunk synth",
-      emoji = "⚡",
-      initialTrackIds = listOf("t1")
-    )
-    assertNotNull(created)
-    assertEquals("Night Drive", created.title)
-    assertTrue("Share code should be generated", created.shareCode.startsWith("VIBE-"))
+    repository.addAndDownloadFromLink(
+      url = "https://tiktok.com/@creator/video/123",
+      customTitle = "My TikTok Track",
+      customArtist = "Creator",
+      isVideo = false
+    ) { track ->
+      assertNotNull(track)
+      assertEquals("My TikTok Track", track.title)
+    }
   }
 }

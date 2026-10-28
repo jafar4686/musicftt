@@ -2,24 +2,23 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Obsidian & Sleek Dark Palette
-val ObsidianBlack = Color(0xFF090A0E)
-val DeepCharcoal = Color(0xFF111218)
-val SurfaceDark = Color(0xFF161722)
-val SurfaceElevated = Color(0xFF1F202E)
-val SurfaceHighlight = Color(0xFF2B2D40)
+// Warm Brown & Elegant Earthy Palette (No neon, neat & tidy)
+val EspressoDark = Color(0xFF140F0D)
+val CocoaBrown = Color(0xFF1C1512)
+val DeepWarmBrown = Color(0xFF241C18)
+val WarmCardSurface = Color(0xFF2E241E)
+val CardElevated = Color(0xFF382B24)
+val CardHighlight = Color(0xFF45362E)
 
-// Neon & Minimal Electric Accents
-val ElectricCyan = Color(0xFF00E5FF)
-val NeonPurple = Color(0xFF8B5CF6)
-val SoftViolet = Color(0xFFA78BFA)
-val HologramPink = Color(0xFFFF2A85)
-val EmeraldGlow = Color(0xFF00E676)
-val AmberGlow = Color(0xFFFFB300)
+// Warm Earth Accents
+val CaramelGold = Color(0xFFD4A373)
+val WarmBeige = Color(0xFFE8D3BC)
+val TerracottaAccent = Color(0xFFC07053)
+val MutedAmber = Color(0xFFC68B59)
 
-// Text & Monochromes
-val TextPrimary = Color(0xFFF4F4F8)
-val TextSecondary = Color(0xFF9E9EB4)
-val TextTertiary = Color(0xFF6B6B80)
-val BorderSubtle = Color(0xFF242536)
-val BorderLight = Color(0x33A78BFA)
+// Text & Borders
+val TextCream = Color(0xFFF9F5F0)
+val TextMutedSand = Color(0xFFB5A79E)
+val TextSoftBrown = Color(0xFF8C7D75)
+val BorderWarm = Color(0xFF42342C)
+val BorderSubtleWarm = Color(0xFF30241E)

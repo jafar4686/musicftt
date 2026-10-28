@@ -18,24 +18,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,36 +42,32 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.model.AnimatedArtStyle
-import com.example.ui.theme.BorderSubtle
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.EmeraldGlow
-import com.example.ui.theme.NeonPurple
-import com.example.ui.theme.ObsidianBlack
-import com.example.ui.theme.SoftViolet
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.model.UserProfile
+import com.example.ui.theme.BorderWarm
+import com.example.ui.theme.CardElevated
+import com.example.ui.theme.CaramelGold
+import com.example.ui.theme.DeepWarmBrown
+import com.example.ui.theme.EspressoDark
+import com.example.ui.theme.TextCream
+import com.example.ui.theme.TextMutedSand
+import com.example.ui.theme.WarmCardSurface
 
 @Composable
 fun SettingsScreen(
+    userProfile: UserProfile,
     isDynamicIslandEnabled: Boolean,
     onToggleDynamicIsland: (Boolean) -> Unit,
-    currentArtStyle: AnimatedArtStyle,
-    onSelectArtStyle: (AnimatedArtStyle) -> Unit,
     storageSizeFormatted: String,
-    onClearAllDownloads: () -> Unit,
+    onScanDevice: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var notificationControlEnabled by remember { mutableStateOf(true) }
-    var highFidelityAudio by remember { mutableStateOf(true) }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .testTag("settings_screen"),
         contentPadding = PaddingValues(bottom = 96.dp)
     ) {
-        // Header
+        // Screen Header
         item {
             Column(
                 modifier = Modifier
@@ -81,261 +75,280 @@ fun SettingsScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "PREFERENCES",
+                    text = "SETTINGS",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = ElectricCyan,
+                    color = CaramelGold,
                     letterSpacing = 2.sp
                 )
                 Text(
-                    text = "Player & System",
+                    text = "Preferences & Profile",
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
+                    fontWeight = FontWeight.Bold,
+                    color = TextCream
                 )
             }
         }
 
-        // Section: Playback Controls & Dynamic Island
+        // Section: User Profile Login (Picture in a square with brown background)
         item {
-            SettingsCategoryHeader(title = "Background Controls & Island")
-
-            SettingsSwitchCard(
-                icon = Icons.Default.NotificationsActive,
-                iconColor = ElectricCyan,
-                title = "Notification Bar Controls",
-                subtitle = "Seamless background playback controls with actions when exiting the app",
-                checked = notificationControlEnabled,
-                onCheckedChange = { notificationControlEnabled = it },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-            )
-
-            SettingsSwitchCard(
-                icon = Icons.Default.Vibration,
-                iconColor = NeonPurple,
-                title = "Dynamic Island Overlay",
-                subtitle = "Floating pill at the top for real-time waveform & expanded playback control",
-                checked = isDynamicIslandEnabled,
-                onCheckedChange = onToggleDynamicIsland,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-            )
-        }
-
-        // Section: Sleek Minimalist Dark Aesthetic
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingsCategoryHeader(title = "Aesthetic & Visuals")
+            SettingsSectionTitle(title = "Account & Profile")
 
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF141520),
+                color = DeepWarmBrown,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 4.dp)
-                    .border(0.5.dp, Color(0xFF26283C), RoundedCornerShape(16.dp))
+                    .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+                    .testTag("user_profile_card")
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF222436))
-                        ) {
-                            Icon(imageVector = Icons.Default.DarkMode, contentDescription = null, tint = SoftViolet)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(text = "Interface Aesthetic", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.White)
-                            Text(text = "Sleek Obsidian Pitch Black", fontSize = 12.sp, color = ElectricCyan)
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .background(ElectricCyan.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(text = "ACTIVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
-                    }
-                }
-            }
-        }
-
-        // Section: Audio Quality & Engine
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingsCategoryHeader(title = "Audio Engine")
-
-            SettingsSwitchCard(
-                icon = Icons.Default.GraphicEq,
-                iconColor = EmeraldGlow,
-                title = "320kbps Harmonic Synthesizer",
-                subtitle = "Real-time algorithmic chord synthesis for offline ambient lo-fi / synthwave",
-                checked = highFidelityAudio,
-                onCheckedChange = { highFidelityAudio = it },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-            )
-        }
-
-        // Section: Offline Storage
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingsCategoryHeader(title = "Offline Storage Vault")
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF141520),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp)
-                    .border(0.5.dp, Color(0xFF26283C), RoundedCornerShape(16.dp))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF222436))
-                        ) {
-                            Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = EmeraldGlow)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(text = "Local Vault Usage", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.White)
-                            Text(text = storageSizeFormatted, fontSize = 12.sp, color = TextSecondary)
-                        }
-                    }
-
-                    Button(
-                        onClick = onClearAllDownloads,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2A1C24),
-                            contentColor = Color(0xFFFF5252)
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text(text = "Clear Vault", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // About
-        item {
-            Spacer(modifier = Modifier.height(24.dp))
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF11121C),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
+                        .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = SoftViolet)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(text = "Aura Music Player v1.0", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    // Profile picture in a neat SQUARE with brown background
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(10.dp)) // Square frame with subtle soft corners
+                            .background(WarmCardSurface)
+                            .border(1.5.dp, CaramelGold, RoundedCornerShape(10.dp))
+                    ) {
                         Text(
-                            text = "Curated playlists, offline video/audio downloads, animated vinyl & spectrum art, and Dynamic Island controls.",
+                            text = "👤",
+                            fontSize = 32.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = userProfile.name,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextCream
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Verified",
+                                tint = CaramelGold,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = userProfile.username,
+                            fontSize = 12.sp,
+                            color = CaramelGold,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = userProfile.bio,
                             fontSize = 11.sp,
-                            color = TextSecondary
+                            color = TextMutedSand
                         )
                     }
                 }
             }
         }
+
+        // Section: Dynamic Island & Exit Controls
+        item {
+            Spacer(modifier = Modifier.height(14.dp))
+            SettingsSectionTitle(title = "Playback & Dynamic Island")
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DeepWarmBrown,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                    .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(WarmCardSurface)
+                        ) {
+                            Icon(imageVector = Icons.Default.Vibration, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(text = "Dynamic Island Overlay", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextCream)
+                            Text(
+                                text = "Appears as a small circle; tap to enlarge into an island when exiting the app",
+                                fontSize = 11.sp,
+                                color = TextMutedSand
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Switch(
+                        checked = isDynamicIslandEnabled,
+                        onCheckedChange = onToggleDynamicIsland,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = EspressoDark,
+                            checkedTrackColor = CaramelGold,
+                            uncheckedThumbColor = TextMutedSand,
+                            uncheckedTrackColor = WarmCardSurface
+                        )
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DeepWarmBrown,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                    .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(WarmCardSurface)
+                    ) {
+                        Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(text = "Notification Bar Controls", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextCream)
+                        Text(text = "Control playback smoothly while using other apps", fontSize = 11.sp, color = TextMutedSand)
+                    }
+                }
+            }
+        }
+
+        // Section: Device Audio & Storage
+        item {
+            Spacer(modifier = Modifier.height(14.dp))
+            SettingsSectionTitle(title = "Device Storage & Scan")
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DeepWarmBrown,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                    .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(WarmCardSurface)
+                        ) {
+                            Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(text = "Device Music Scanner", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextCream)
+                            Text(text = "Storage: $storageSizeFormatted", fontSize = 11.sp, color = TextMutedSand)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onScanDevice,
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CaramelGold),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = CaramelGold),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "Scan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Section: App Version & GitHub
+        item {
+            Spacer(modifier = Modifier.height(20.dp))
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DeepWarmBrown,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Aura Music Player", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextCream)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(CaramelGold.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(text = "v2.0.0", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CaramelGold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Repository: jafar4686/musicftt\nClean warm brown aesthetic with zero initial state, link downloader, and Dynamic Island controls.",
+                        fontSize = 11.sp,
+                        color = TextMutedSand,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun SettingsCategoryHeader(title: String) {
+fun SettingsSectionTitle(title: String) {
     Text(
         text = title.uppercase(),
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
-        color = SoftViolet,
+        color = CaramelGold,
         letterSpacing = 1.sp,
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
     )
-}
-
-@Composable
-fun SettingsSwitchCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconColor: Color,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF141520),
-        modifier = modifier
-            .fillMaxWidth()
-            .border(0.5.dp, Color(0xFF26283C), RoundedCornerShape(16.dp))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF222436))
-                ) {
-                    Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(20.dp))
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(text = title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.White)
-                    Text(text = subtitle, fontSize = 11.sp, color = TextSecondary)
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = ObsidianBlack,
-                    checkedTrackColor = ElectricCyan,
-                    uncheckedThumbColor = TextSecondary,
-                    uncheckedTrackColor = Color(0xFF222436)
-                )
-            )
-        }
-    }
 }

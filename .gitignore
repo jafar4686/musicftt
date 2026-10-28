@@ -17,4 +17,6 @@
 debug.keystore
 debug.keystore.base64
 .build-outputs/
+.aistudio/
+public/
 

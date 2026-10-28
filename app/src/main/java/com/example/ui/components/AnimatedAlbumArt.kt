@@ -11,7 +11,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,18 +22,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -58,12 +54,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AnimatedArtStyle
 import com.example.model.Track
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.HologramPink
-import com.example.ui.theme.NeonPurple
-import com.example.ui.theme.ObsidianBlack
-import com.example.ui.theme.SoftViolet
-import kotlin.math.cos
+import com.example.ui.theme.BorderWarm
+import com.example.ui.theme.CaramelGold
+import com.example.ui.theme.CocoaBrown
+import com.example.ui.theme.DeepWarmBrown
+import com.example.ui.theme.EspressoDark
+import com.example.ui.theme.MutedAmber
+import com.example.ui.theme.TerracottaAccent
+import com.example.ui.theme.TextCream
+import com.example.ui.theme.TextMutedSand
+import com.example.ui.theme.WarmBeige
+import com.example.ui.theme.WarmCardSurface
 import kotlin.math.sin
 
 @Composable
@@ -73,24 +74,24 @@ fun AnimatedAlbumArt(
     currentArtStyle: AnimatedArtStyle,
     onStyleSelected: (AnimatedArtStyle) -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 260.dp,
+    size: Dp = 250.dp,
     showStyleSelector: Boolean = true
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.testTag("animated_album_art_container")
+        modifier = modifier.testTag("animated_album_art")
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(size)
-                .padding(8.dp)
+                .padding(6.dp)
         ) {
             when (currentArtStyle) {
-                AnimatedArtStyle.VINYL -> VinylRecordArt(track = track, isPlaying = isPlaying, size = size)
-                AnimatedArtStyle.NEON_AURA -> NeonAuraArt(track = track, isPlaying = isPlaying, size = size)
-                AnimatedArtStyle.FREQUENCY_BARS -> FrequencyBarsArt(track = track, isPlaying = isPlaying, size = size)
-                AnimatedArtStyle.HOLOGRAPHIC_ORBIT -> HolographicOrbitArt(track = track, isPlaying = isPlaying, size = size)
+                AnimatedArtStyle.VINYL -> WarmVinylArt(track = track, isPlaying = isPlaying, size = size)
+                AnimatedArtStyle.MINIMAL_WAVE -> MinimalWaveArt(track = track, isPlaying = isPlaying, size = size)
+                AnimatedArtStyle.ACOUSTIC_BARS -> AcousticBarsArt(track = track, isPlaying = isPlaying, size = size)
+                AnimatedArtStyle.ELEGANT_GLOW -> ElegantGlowArt(track = track, isPlaying = isPlaying, size = size)
             }
         }
 
@@ -98,8 +99,7 @@ fun AnimatedAlbumArt(
             Spacer(modifier = Modifier.height(14.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 12.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 AnimatedArtStyle.entries.forEach { style ->
                     val isSelected = style == currentArtStyle
@@ -110,9 +110,9 @@ fun AnimatedAlbumArt(
                             Text(
                                 text = when (style) {
                                     AnimatedArtStyle.VINYL -> "Vinyl"
-                                    AnimatedArtStyle.NEON_AURA -> "Aura"
-                                    AnimatedArtStyle.FREQUENCY_BARS -> "Spectrum"
-                                    AnimatedArtStyle.HOLOGRAPHIC_ORBIT -> "Holo"
+                                    AnimatedArtStyle.MINIMAL_WAVE -> "Wave"
+                                    AnimatedArtStyle.ACOUSTIC_BARS -> "Spectrum"
+                                    AnimatedArtStyle.ELEGANT_GLOW -> "Warm Glow"
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -122,23 +122,24 @@ fun AnimatedAlbumArt(
                             Icon(
                                 imageVector = when (style) {
                                     AnimatedArtStyle.VINYL -> Icons.Default.Radio
-                                    AnimatedArtStyle.NEON_AURA -> Icons.Default.AutoAwesome
-                                    AnimatedArtStyle.FREQUENCY_BARS -> Icons.Default.GraphicEq
-                                    AnimatedArtStyle.HOLOGRAPHIC_ORBIT -> Icons.Default.MusicNote
+                                    AnimatedArtStyle.MINIMAL_WAVE -> Icons.Default.Waves
+                                    AnimatedArtStyle.ACOUSTIC_BARS -> Icons.Default.GraphicEq
+                                    AnimatedArtStyle.ELEGANT_GLOW -> Icons.Default.Tune
                                 },
-                                contentDescription = style.displayName,
+                                contentDescription = null,
                                 modifier = Modifier.size(13.dp)
                             )
                         },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = ElectricCyan.copy(alpha = 0.2f),
-                            selectedLabelColor = ElectricCyan,
-                            selectedLeadingIconColor = ElectricCyan
+                            selectedContainerColor = CaramelGold.copy(alpha = 0.2f),
+                            selectedLabelColor = CaramelGold,
+                            containerColor = WarmCardSurface,
+                            labelColor = TextMutedSand
                         ),
                         border = FilterChipDefaults.filterChipBorder(
                             enabled = true,
                             selected = isSelected,
-                            borderColor = if (isSelected) ElectricCyan else Color.Transparent
+                            borderColor = if (isSelected) CaramelGold else BorderWarm
                         )
                     )
                 }
@@ -148,24 +149,19 @@ fun AnimatedAlbumArt(
 }
 
 @Composable
-fun VinylRecordArt(track: Track, isPlaying: Boolean, size: Dp) {
-    val infiniteTransition = rememberInfiniteTransition(label = "vinyl_spin")
+fun WarmVinylArt(track: Track, isPlaying: Boolean, size: Dp) {
+    val infiniteTransition = rememberInfiniteTransition(label = "vinyl")
     val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Restart),
+        label = "rot"
     )
 
-    // Smooth slide out offset when playing
     val slideOffset = remember { Animatable(0f) }
     LaunchedEffect(isPlaying) {
         slideOffset.animateTo(
-            targetValue = if (isPlaying) 32f else 8f,
-            animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
+            targetValue = if (isPlaying) 28f else 6f,
+            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
         )
     }
 
@@ -173,7 +169,7 @@ fun VinylRecordArt(track: Track, isPlaying: Boolean, size: Dp) {
         contentAlignment = Alignment.Center,
         modifier = Modifier.size(size)
     ) {
-        // Vinyl Disc sliding out from sleeve
+        // Vinyl record
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -183,127 +179,69 @@ fun VinylRecordArt(track: Track, isPlaying: Boolean, size: Dp) {
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF1E1E28),
-                            Color(0xFF101016),
-                            Color(0xFF08080C)
-                        )
+                        listOf(Color(0xFF28201C), Color(0xFF1E1714), Color(0xFF120E0C))
                     )
                 )
-                .border(1.dp, Color(0xFF2C2D3E), CircleShape)
+                .border(1.dp, BorderWarm, CircleShape)
         ) {
-            // Vinyl grooves canvas
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val center = Offset(this.size.width / 2f, this.size.height / 2f)
-                val maxRadius = this.size.width / 2f
-
-                // Concentric grooves
-                for (r in 3..10) {
-                    val radius = maxRadius * (r / 11f)
+                val maxR = this.size.width / 2f
+                for (r in 3..9) {
+                    val radius = maxR * (r / 10f)
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.04f + (r % 2) * 0.02f),
+                        color = WarmBeige.copy(alpha = 0.05f),
                         radius = radius,
                         center = center,
                         style = Stroke(width = 1f)
                     )
                 }
-
-                // Grooves light sheen reflection highlights
-                drawLine(
-                    color = Color.White.copy(alpha = 0.08f),
-                    start = Offset(center.x - maxRadius * 0.7f, center.y - maxRadius * 0.7f),
-                    end = Offset(center.x + maxRadius * 0.7f, center.y + maxRadius * 0.7f),
-                    strokeWidth = 2f
-                )
             }
 
-            // Center Label with track initial
+            // Center label
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(size * 0.32f)
                     .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(ElectricCyan, NeonPurple)
-                        )
-                    )
+                    .background(CaramelGold)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(ObsidianBlack)
-                )
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(EspressoDark))
             }
         }
 
-        // Front Album Jacket Sleeve
+        // Front Jacket Sleeve (Warm Brown card)
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF14151F),
-            shadowElevation = 12.dp,
+            shape = RoundedCornerShape(14.dp),
+            color = DeepWarmBrown,
+            shadowElevation = 8.dp,
             modifier = Modifier
                 .size(size * 0.82f)
                 .align(Alignment.CenterStart)
-                .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                .border(1.dp, BorderWarm, RoundedCornerShape(14.dp))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.sweepGradient(
-                            listOf(
-                                Color(0xFF181926),
-                                Color(0xFF232438),
-                                Color(0xFF151624),
-                                Color(0xFF181926)
-                            )
-                        )
-                    )
-                    .padding(16.dp)
+                    .padding(14.dp)
             ) {
-                // Sleek album jacket artwork
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = track.genre.uppercase(),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ElectricCyan,
-                            letterSpacing = 1.sp
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (isPlaying) ElectricCyan else Color.Gray)
-                        )
-                    }
+                    Text(
+                        text = "AURA PLAYER",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CaramelGold,
+                        letterSpacing = 1.sp
+                    )
 
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
+                        modifier = Modifier.fillMaxWidth().weight(1f)
                     ) {
-                        Text(
-                            text = when (track.genre) {
-                                "Cyberpunk" -> "⚡"
-                                "Chillhop" -> "🌧️"
-                                "Ambient" -> "🌌"
-                                "Synthwave" -> "🌆"
-                                else -> "🎵"
-                            },
-                            fontSize = 42.sp
-                        )
+                        Text(text = "🎵", fontSize = 42.sp)
                     }
 
                     Column {
@@ -311,13 +249,13 @@ fun VinylRecordArt(track: Track, isPlaying: Boolean, size: Dp) {
                             text = track.title,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = TextCream,
                             maxLines = 1
                         )
                         Text(
                             text = track.artist,
                             fontSize = 11.sp,
-                            color = SoftViolet,
+                            color = TextMutedSand,
                             maxLines = 1
                         )
                     }
@@ -328,281 +266,148 @@ fun VinylRecordArt(track: Track, isPlaying: Boolean, size: Dp) {
 }
 
 @Composable
-fun NeonAuraArt(track: Track, isPlaying: Boolean, size: Dp) {
-    val infiniteTransition = rememberInfiniteTransition(label = "neon_aura")
-    val pulse by infiniteTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse"
+fun MinimalWaveArt(track: Track, isPlaying: Boolean, size: Dp) {
+    val infiniteTransition = rememberInfiniteTransition(label = "wave")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 6.28f,
+        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart),
+        label = "phase"
     )
 
-    val auraRotate by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "auraRotate"
-    )
-
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(size)
-    ) {
-        // Outer radiant pulsating neon aura
-        Canvas(modifier = Modifier.size(size * (if (isPlaying) pulse else 1f))) {
-            val center = Offset(this.size.width / 2f, this.size.height / 2f)
-            val baseRadius = this.size.width * 0.44f
-
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        ElectricCyan.copy(alpha = if (isPlaying) 0.35f else 0.15f),
-                        NeonPurple.copy(alpha = if (isPlaying) 0.25f else 0.1f),
-                        Color.Transparent
-                    ),
-                    center = center,
-                    radius = baseRadius * 1.15f
-                ),
-                radius = baseRadius * 1.15f,
-                center = center
-            )
-        }
-
-        // Inner glowing artwork card
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(size * 0.78f)
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.sweepGradient(
-                        listOf(
-                            ElectricCyan.copy(alpha = 0.8f),
-                            NeonPurple.copy(alpha = 0.9f),
-                            HologramPink.copy(alpha = 0.8f),
-                            ElectricCyan.copy(alpha = 0.8f)
-                        )
-                    )
-                )
-                .padding(2.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(ObsidianBlack)
-            ) {
-                // Background aura nebula
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .rotate(if (isPlaying) auraRotate else 0f)
-                ) {
-                    val center = Offset(this.size.width / 2f, this.size.height / 2f)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(
-                                NeonPurple.copy(alpha = 0.4f),
-                                Color.Transparent
-                            )
-                        ),
-                        radius = this.size.width * 0.6f,
-                        center = center
-                    )
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "AURA",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = ElectricCyan,
-                        letterSpacing = 4.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = when (track.genre) {
-                            "Cyberpunk" -> "⚡"
-                            "Chillhop" -> "🌧️"
-                            "Ambient" -> "🌌"
-                            "Synthwave" -> "🌆"
-                            else -> "🎵"
-                        },
-                        fontSize = 46.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = track.title,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun FrequencyBarsArt(track: Track, isPlaying: Boolean, size: Dp) {
-    val infiniteTransition = rememberInfiniteTransition(label = "bars")
-    val phase1 by infiniteTransition.animateFloat(
-        initialValue = 0.2f, targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(tween(350, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "b1"
-    )
-    val phase2 by infiniteTransition.animateFloat(
-        initialValue = 0.85f, targetValue = 0.25f,
-        animationSpec = infiniteRepeatable(tween(420, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "b2"
-    )
-    val phase3 by infiniteTransition.animateFloat(
-        initialValue = 0.35f, targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(tween(280, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "b3"
-    )
-
-    Box(
-        contentAlignment = Alignment.Center,
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = DeepWarmBrown,
         modifier = Modifier
             .size(size * 0.84f)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFF11121B))
-            .border(1.dp, Color(0xFF2A2B3D), RoundedCornerShape(20.dp))
+            .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val barCount = 14
-            val spacing = this.size.width / (barCount + 1)
-            val maxBarHeight = this.size.height * 0.65f
-            val centerY = this.size.height / 2f
-
-            for (i in 0 until barCount) {
-                val factor = when (i % 3) {
-                    0 -> phase1
-                    1 -> phase2
-                    else -> phase3
-                }
-                val scale = if (isPlaying) factor * (0.5f + 0.5f * sin((i + 1) * 0.8).toFloat().coerceAtLeast(0.1f)) else 0.15f
-                val barHeight = maxBarHeight * scale
-                val x = spacing * (i + 1)
-
-                drawLine(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(ElectricCyan, NeonPurple)
-                    ),
-                    start = Offset(x, centerY - barHeight / 2f),
-                    end = Offset(x, centerY + barHeight / 2f),
-                    strokeWidth = 7.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .background(ObsidianBlack.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 4.dp)
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "${track.bpm} BPM • ${track.musicalKey}",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = ElectricCyan
-            )
+            Text(text = "SOUND WAVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CaramelGold)
+
+            Canvas(modifier = Modifier.fillMaxWidth().height(90.dp)) {
+                val midY = this.size.height / 2f
+                val points = 30
+                val step = this.size.width / points
+
+                for (i in 0 until points - 1) {
+                    val x1 = i * step
+                    val x2 = (i + 1) * step
+                    val amp = if (isPlaying) 28.dp.toPx() else 6.dp.toPx()
+                    val y1 = midY + amp * sin(i * 0.4 + phase).toFloat()
+                    val y2 = midY + amp * sin((i + 1) * 0.4 + phase).toFloat()
+
+                    drawLine(
+                        color = CaramelGold,
+                        start = Offset(x1, y1),
+                        end = Offset(x2, y2),
+                        strokeWidth = 2.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            Text(text = track.title, fontSize = 12.sp, color = TextCream, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
 
 @Composable
-fun HolographicOrbitArt(track: Track, isPlaying: Boolean, size: Dp) {
-    val infiniteTransition = rememberInfiniteTransition(label = "holo_rings")
-    val orbitAngle1 by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing), RepeatMode.Restart),
-        label = "o1"
+fun AcousticBarsArt(track: Track, isPlaying: Boolean, size: Dp) {
+    val infiniteTransition = rememberInfiniteTransition(label = "bars")
+    val p1 by infiniteTransition.animateFloat(
+        initialValue = 0.2f, targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(350, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "p1"
     )
-    val orbitAngle2 by infiniteTransition.animateFloat(
-        initialValue = 360f, targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
-        label = "o2"
+    val p2 by infiniteTransition.animateFloat(
+        initialValue = 0.8f, targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(tween(280, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "p2"
     )
 
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(size)
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = DeepWarmBrown,
+        modifier = Modifier
+            .size(size * 0.84f)
+            .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+            .padding(16.dp)
     ) {
-        // Holographic particle orbital rings
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(this.size.width / 2f, this.size.height / 2f)
-            val r1 = this.size.width * 0.42f
-            val r2 = this.size.width * 0.35f
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = "FREQUENCY BARS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CaramelGold)
 
-            // Ring 1
-            drawCircle(
-                brush = Brush.sweepGradient(
-                    listOf(ElectricCyan, Color.Transparent, NeonPurple, Color.Transparent, ElectricCyan)
-                ),
-                radius = r1,
-                center = center,
-                style = Stroke(width = 2.dp.toPx())
-            )
+            Canvas(modifier = Modifier.fillMaxWidth().height(100.dp)) {
+                val barCount = 12
+                val spacing = this.size.width / (barCount + 1)
+                val maxH = this.size.height * 0.7f
+                val midY = this.size.height / 2f
 
-            // Orbiting node 1
-            if (isPlaying) {
-                val rad1 = Math.toRadians(orbitAngle1.toDouble())
-                val node1X = center.x + (r1 * cos(rad1)).toFloat()
-                val node1Y = center.y + (r1 * sin(rad1)).toFloat()
-                drawCircle(color = ElectricCyan, radius = 5.dp.toPx(), center = Offset(node1X, node1Y))
+                for (i in 0 until barCount) {
+                    val factor = if (i % 2 == 0) p1 else p2
+                    val scale = if (isPlaying) factor else 0.15f
+                    val barH = maxH * scale
+                    val x = spacing * (i + 1)
 
-                // Orbiting node 2
-                val rad2 = Math.toRadians(orbitAngle2.toDouble())
-                val node2X = center.x + (r2 * cos(rad2)).toFloat()
-                val node2Y = center.y + (r2 * sin(rad2)).toFloat()
-                drawCircle(color = HologramPink, radius = 4.dp.toPx(), center = Offset(node2X, node2Y))
+                    drawLine(
+                        color = CaramelGold,
+                        start = Offset(x, midY - barH / 2f),
+                        end = Offset(x, midY + barH / 2f),
+                        strokeWidth = 6.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
             }
-        }
 
-        // Center holographic sphere
+            Text(text = track.artist, fontSize = 12.sp, color = TextMutedSand, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+fun ElegantGlowArt(track: Track, isPlaying: Boolean, size: Dp) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = DeepWarmBrown,
+        modifier = Modifier
+            .size(size * 0.84f)
+            .border(1.dp, BorderWarm, RoundedCornerShape(16.dp))
+    ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(size * 0.58f)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF241638),
-                            Color(0xFF100C1C),
-                            ObsidianBlack
-                        )
-                    )
-                )
-                .border(1.dp, SoftViolet.copy(alpha = 0.5f), CircleShape)
+            modifier = Modifier.fillMaxSize()
         ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center = Offset(this.size.width / 2f, this.size.height / 2f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            CaramelGold.copy(alpha = if (isPlaying) 0.35f else 0.12f),
+                            TerracottaAccent.copy(alpha = if (isPlaying) 0.2f else 0.05f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = this.size.width * 0.5f
+                    ),
+                    radius = this.size.width * 0.5f,
+                    center = center
+                )
+            }
+
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (track.isVideo) "VIDEO" else "HOLO",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black,
-                    color = HologramPink,
-                    letterSpacing = 2.sp
-                )
-                Text(
-                    text = "🌐",
-                    fontSize = 32.sp
-                )
+                Text(text = "AURA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CaramelGold, letterSpacing = 2.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(text = "✨", fontSize = 36.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(text = track.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextCream)
             }
         }
     }
