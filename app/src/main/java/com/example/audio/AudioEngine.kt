@@ -2,129 +2,197 @@ package com.example.audio
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
+import android.media.MediaPlayer
+import android.net.Uri
+import android.os.PowerManager
 import android.util.Log
+import com.example.R
 import com.example.model.Track
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlin.math.PI
-import kotlin.math.sin
+import java.io.File
 
 /**
- * Resilient, crash-proof musical audio player and ambient synthesizer.
- * Safeguarded against null native pointers, emulator audio driver absences, and SEGV_MAPERR fault addr 0x0.
+ * High-fidelity, real MediaPlayer engine for Android.
+ * Plays actual media files (MP3, M4A, WAV), content URIs, and fallback acoustic audio.
+ * Uses PowerManager.PARTIAL_WAKE_LOCK and AudioAttributes.USAGE_MEDIA to ensure
+ * smooth, seamless, crystal-clear background playback when exiting the app.
  */
-class AudioEngine(private val context: Context) {
+class AudioEngine(
+    private val context: Context,
+    private val onTrackCompleted: () -> Unit = {},
+    private val onError: (String) -> Unit = {}
+) {
 
-    private var audioTrack: AudioTrack? = null
-    private var isAudioSinkAvailable = false
-    private var synthesisJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private var mediaPlayer: MediaPlayer? = null
+    private var isPrepared = false
+    private var isPlayingState = false
+    private var currentTrackId: String? = null
 
-    private val sampleRate = 44100
-    private var isPlaying = false
-    private var currentFrequency = 220.0
-    private var targetVolume = 0.4f
-
-    private val chordProgressions = mapOf(
-        "Cyberpunk" to listOf(110.0, 130.81, 146.83, 164.81),
-        "Lo-Fi" to listOf(130.81, 164.81, 196.00, 220.00),
-        "Synthwave" to listOf(146.83, 174.61, 220.00, 261.63),
-        "Ambient" to listOf(110.00, 146.83, 164.81, 220.00),
-        "Chillhop" to listOf(130.81, 174.61, 196.00, 246.94)
-    )
-
-    init {
-        initAudioTrackSafely()
-    }
-
-    private fun initAudioTrackSafely() {
-        try {
-            val minBufferSize = AudioTrack.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-
-            if (minBufferSize > 0) {
-                val bufferSize = maxOf(minBufferSize, sampleRate / 2)
-                val track = AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(bufferSize)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-
-                if (track.state == AudioTrack.STATE_INITIALIZED) {
-                    audioTrack = track
-                    isAudioSinkAvailable = true
-                    try {
-                        track.play()
-                    } catch (e: Throwable) {
-                        Log.w("AudioEngine", "Unable to start AudioTrack play: ${e.message}")
-                        isAudioSinkAvailable = false
-                    }
-                } else {
-                    Log.w("AudioEngine", "AudioTrack state not initialized (headless/emulator mode)")
-                    isAudioSinkAvailable = false
-                }
-            } else {
-                isAudioSinkAvailable = false
-            }
-        } catch (t: Throwable) {
-            Log.w("AudioEngine", "AudioTrack creation bypassed safely: ${t.message}")
-            isAudioSinkAvailable = false
-            audioTrack = null
+    val isPlaying: Boolean
+        get() = try {
+            mediaPlayer?.isPlaying == true
+        } catch (_: Exception) {
+            isPlayingState
         }
-    }
+
+    val currentPositionMs: Long
+        get() = try {
+            if (isPrepared && mediaPlayer != null) {
+                mediaPlayer!!.currentPosition.toLong()
+            } else 0L
+        } catch (_: Exception) {
+            0L
+        }
+
+    val durationMs: Long
+        get() = try {
+            if (isPrepared && mediaPlayer != null && mediaPlayer!!.duration > 0) {
+                mediaPlayer!!.duration.toLong()
+            } else 0L
+        } catch (_: Exception) {
+            0L
+        }
 
     fun playTrack(track: Track) {
-        isPlaying = true
-        synthesisJob?.cancel()
-        synthesisJob = scope.launch {
-            try {
-                synthesizeTrackMelody(track)
-            } catch (t: Throwable) {
-                Log.w("AudioEngine", "Playback synthesis caught exception safely: ${t.message}")
+        currentTrackId = track.id
+        releasePlayerSafely()
+
+        try {
+            val player = MediaPlayer().apply {
+                setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK)
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
             }
+
+            var dataSourceSet = false
+
+            // 1. Try local file path if present and valid
+            val filePath = track.localFilePath
+            if (!filePath.isNullOrBlank()) {
+                if (filePath.startsWith("content://")) {
+                    try {
+                        val uri = Uri.parse(filePath)
+                        context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                            player.setDataSource(pfd.fileDescriptor)
+                            dataSourceSet = true
+                        }
+                    } catch (e: Exception) {
+                        Log.w("AudioEngine", "Unable to open content URI: ${e.message}")
+                    }
+                } else {
+                    val file = File(filePath)
+                    if (file.exists() && file.length() > 512) {
+                        try {
+                            player.setDataSource(file.absolutePath)
+                            dataSourceSet = true
+                        } catch (e: Exception) {
+                            Log.w("AudioEngine", "Failed to setDataSource for file: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            // 2. Try source URL if it's a valid remote stream
+            if (!dataSourceSet && !track.sourceUrl.isNullOrBlank() &&
+                (track.sourceUrl.startsWith("http://") || track.sourceUrl.startsWith("https://")) &&
+                (track.sourceUrl.endsWith(".mp3") || track.sourceUrl.endsWith(".m4a") || track.sourceUrl.endsWith(".wav") || track.sourceUrl.endsWith(".ogg"))
+            ) {
+                try {
+                    player.setDataSource(track.sourceUrl)
+                    dataSourceSet = true
+                } catch (e: Exception) {
+                    Log.w("AudioEngine", "Failed to setDataSource for remote URL: ${e.message}")
+                }
+            }
+
+            // 3. Fallback to real bundled acoustic track (res/raw/aura_music.wav)
+            if (!dataSourceSet) {
+                try {
+                    val afd = context.resources.openRawResourceFd(R.raw.aura_music)
+                    if (afd != null) {
+                        player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        afd.close()
+                        dataSourceSet = true
+                    }
+                } catch (e: Exception) {
+                    Log.w("AudioEngine", "Failed to load bundled fallback track: ${e.message}")
+                }
+            }
+
+            if (!dataSourceSet) {
+                Log.e("AudioEngine", "No valid data source found for track ${track.title}")
+                return
+            }
+
+            player.setOnPreparedListener { mp ->
+                isPrepared = true
+                try {
+                    mp.start()
+                    isPlayingState = true
+                } catch (e: Exception) {
+                    Log.e("AudioEngine", "Error starting playback on prepared: ${e.message}")
+                }
+            }
+
+            player.setOnCompletionListener {
+                isPlayingState = false
+                onTrackCompleted()
+            }
+
+            player.setOnErrorListener { _, what, extra ->
+                Log.w("AudioEngine", "MediaPlayer error: what=$what, extra=$extra")
+                isPrepared = false
+                isPlayingState = false
+                onError("Playback error ($what, $extra)")
+                true // Handled
+            }
+
+            mediaPlayer = player
+            player.prepareAsync()
+
+        } catch (t: Throwable) {
+            Log.e("AudioEngine", "Fatal error creating MediaPlayer: ${t.message}")
+            releasePlayerSafely()
         }
     }
 
     fun pause() {
-        isPlaying = false
-        synthesisJob?.cancel()
-        synthesisJob = null
+        isPlayingState = false
         try {
-            if (isAudioSinkAvailable && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                audioTrack?.pause()
+            if (isPrepared && mediaPlayer?.isPlaying == true) {
+                mediaPlayer?.pause()
             }
-        } catch (_: Throwable) {}
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Pause error: ${e.message}")
+        }
     }
 
     fun resume(track: Track?) {
-        if (track != null) {
+        if (mediaPlayer != null && isPrepared) {
             try {
-                if (isAudioSinkAvailable && audioTrack?.playState == AudioTrack.PLAYSTATE_PAUSED) {
-                    audioTrack?.play()
-                }
-            } catch (_: Throwable) {}
+                mediaPlayer?.start()
+                isPlayingState = true
+                return
+            } catch (e: Exception) {
+                Log.w("AudioEngine", "Resume error: ${e.message}")
+            }
+        }
+        if (track != null) {
             playTrack(track)
+        }
+    }
+
+    fun seekTo(positionMs: Long) {
+        try {
+            if (isPrepared && mediaPlayer != null) {
+                val targetMs = positionMs.coerceIn(0L, durationMs).toInt()
+                mediaPlayer?.seekTo(targetMs)
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Seek error: ${e.message}")
         }
     }
 
@@ -133,82 +201,21 @@ class AudioEngine(private val context: Context) {
     }
 
     fun release() {
-        isPlaying = false
-        synthesisJob?.cancel()
-        synthesisJob = null
-        try {
-            if (audioTrack?.state == AudioTrack.STATE_INITIALIZED) {
-                audioTrack?.stop()
-                audioTrack?.release()
-            }
-        } catch (_: Throwable) {}
-        audioTrack = null
-        isAudioSinkAvailable = false
+        releasePlayerSafely()
     }
 
-    private suspend fun synthesizeTrackMelody(track: Track) {
-        val chords = chordProgressions[track.genre] ?: chordProgressions["Lo-Fi"]!!
-        val buffer = ShortArray(2048)
-        var phase = 0.0
-        var secondaryPhase = 0.0
-        var chordIndex = 0
-        var noteCounter = 0
-
-        while (scope.isActive && isPlaying) {
-            val baseFreq = chords[chordIndex % chords.size]
-            val arpeggioFactor = when ((noteCounter / 8) % 4) {
-                0 -> 1.0
-                1 -> 1.2599
-                2 -> 1.4983
-                else -> 2.0
-            }
-            val targetFreq = baseFreq * arpeggioFactor
-            currentFrequency += (targetFreq - currentFrequency) * 0.15
-
-            val phaseIncrement = (2.0 * PI * currentFrequency) / sampleRate
-            val secondaryIncrement = (2.0 * PI * (currentFrequency * 1.003)) / sampleRate
-
-            if (isAudioSinkAvailable && audioTrack != null) {
-                val currentTrack = audioTrack
-                if (currentTrack != null && currentTrack.state == AudioTrack.STATE_INITIALIZED) {
-                    for (i in buffer.indices) {
-                        phase += phaseIncrement
-                        if (phase > 2.0 * PI) phase -= 2.0 * PI
-
-                        secondaryPhase += secondaryIncrement
-                        if (secondaryPhase > 2.0 * PI) secondaryPhase -= 2.0 * PI
-
-                        val sample1 = sin(phase)
-                        val sampleSub = 0.35 * sin(phase * 0.5)
-                        val sampleDetuned = 0.3 * sin(secondaryPhase)
-                        val harmonic = 0.15 * sin(phase * 3.0)
-
-                        val mixed = (sample1 + sampleSub + sampleDetuned + harmonic) * 0.45 * targetVolume
-                        val clamped = mixed.coerceIn(-1.0, 1.0)
-                        buffer[i] = (clamped * Short.MAX_VALUE).toInt().toShort()
-                    }
-
-                    try {
-                        val written = currentTrack.write(buffer, 0, buffer.size)
-                        if (written < 0) {
-                            Log.w("AudioEngine", "AudioTrack write returned error code: $written")
-                            isAudioSinkAvailable = false
-                        }
-                    } catch (t: Throwable) {
-                        Log.w("AudioEngine", "AudioTrack write failed safely: ${t.message}")
-                        isAudioSinkAvailable = false
-                    }
-                } else {
-                    isAudioSinkAvailable = false
+    private fun releasePlayerSafely() {
+        isPrepared = false
+        isPlayingState = false
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) {
+                    it.stop()
                 }
+                it.reset()
+                it.release()
             }
-
-            noteCounter++
-            if (noteCounter % 32 == 0) {
-                chordIndex++
-            }
-
-            delay(25)
-        }
+        } catch (_: Exception) {}
+        mediaPlayer = null
     }
 }

@@ -3,6 +3,8 @@ package com.example.service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
+import android.util.Log
 import com.example.audio.AudioEngine
 import com.example.model.AnimatedArtStyle
 import com.example.model.PlaybackState
@@ -29,14 +31,51 @@ object PlaybackManager {
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentPlaylist: List<Track> = emptyList()
     private var currentIndex: Int = 0
+    private var appContext: Context? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
         if (audioEngine == null) {
-            audioEngine = AudioEngine(context.applicationContext)
+            audioEngine = AudioEngine(
+                context = context.applicationContext,
+                onTrackCompleted = {
+                    handleTrackCompletion()
+                },
+                onError = { err ->
+                    Log.w("PlaybackManager", "Audio playback notification: $err")
+                }
+            )
+        }
+        try {
+            val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AuraMusic:PlaybackWakeLock")
+        } catch (_: Exception) {}
+    }
+
+    private fun handleTrackCompletion() {
+        val state = _playbackState.value
+        when (state.repeatMode) {
+            RepeatMode.ONE -> {
+                seekTo(0L)
+                play(appContext)
+            }
+            RepeatMode.ALL -> {
+                next(appContext)
+            }
+            RepeatMode.OFF -> {
+                if (currentIndex < currentPlaylist.size - 1) {
+                    next(appContext)
+                } else {
+                    pause(appContext)
+                    _playbackState.update { it.copy(currentPositionMs = 0L) }
+                }
+            }
         }
     }
 
     fun setPlaylist(tracks: List<Track>, startIndex: Int = 0, autoPlay: Boolean = true, context: Context? = null) {
+        val ctx = context ?: appContext
         currentPlaylist = tracks
         currentIndex = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
         if (tracks.isNotEmpty()) {
@@ -50,12 +89,13 @@ object PlaybackManager {
                 )
             }
             if (autoPlay) {
-                play(context)
+                play(ctx)
             }
         }
     }
 
     fun playTrack(track: Track, context: Context? = null) {
+        val ctx = context ?: appContext
         val foundIndex = currentPlaylist.indexOfFirst { it.id == track.id }
         if (foundIndex != -1) {
             currentIndex = foundIndex
@@ -72,43 +112,58 @@ object PlaybackManager {
                 currentArtStyle = track.animatedStyle
             )
         }
-        play(context)
+        play(ctx)
     }
 
     fun play(context: Context? = null) {
+        val ctx = context ?: appContext
         val track = _playbackState.value.currentTrack ?: return
+
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(3 * 60 * 60 * 1000L) // 3 hours timeout safety
+            }
+        } catch (_: Exception) {}
+
         _playbackState.update { it.copy(isPlaying = true) }
         audioEngine?.playTrack(track)
         startProgressTracking()
 
         // Trigger Foreground Service for notification bar & background playback
-        context?.let { ctx ->
-            val serviceIntent = Intent(ctx, MusicPlaybackService::class.java).apply {
-                action = MusicPlaybackService.ACTION_UPDATE_NOTIFICATION
-            }
+        ctx?.let { c ->
             try {
+                val serviceIntent = Intent(c, MusicPlaybackService::class.java).apply {
+                    action = MusicPlaybackService.ACTION_UPDATE_NOTIFICATION
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    ctx.startForegroundService(serviceIntent)
+                    c.startForegroundService(serviceIntent)
                 } else {
-                    ctx.startService(serviceIntent)
+                    c.startService(serviceIntent)
                 }
             } catch (e: Exception) {
-                // Ignore service start exception in sandbox or background restriction
+                Log.w("PlaybackManager", "Service start handled: ${e.message}")
             }
         }
     }
 
     fun pause(context: Context? = null) {
+        val ctx = context ?: appContext
         _playbackState.update { it.copy(isPlaying = false) }
         audioEngine?.pause()
         stopProgressTracking()
 
-        context?.let { ctx ->
-            val serviceIntent = Intent(ctx, MusicPlaybackService::class.java).apply {
-                action = MusicPlaybackService.ACTION_UPDATE_NOTIFICATION
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
             }
+        } catch (_: Exception) {}
+
+        ctx?.let { c ->
             try {
-                ctx.startService(serviceIntent)
+                val serviceIntent = Intent(c, MusicPlaybackService::class.java).apply {
+                    action = MusicPlaybackService.ACTION_UPDATE_NOTIFICATION
+                }
+                c.startService(serviceIntent)
             } catch (_: Exception) {}
         }
     }
@@ -117,7 +172,26 @@ object PlaybackManager {
         if (_playbackState.value.isPlaying) {
             pause(context)
         } else {
-            play(context)
+            if (_playbackState.value.currentTrack != null) {
+                audioEngine?.resume(_playbackState.value.currentTrack)
+                _playbackState.update { it.copy(isPlaying = true) }
+                startProgressTracking()
+                val ctx = context ?: appContext
+                ctx?.let { c ->
+                    try {
+                        val serviceIntent = Intent(c, MusicPlaybackService::class.java).apply {
+                            action = MusicPlaybackService.ACTION_UPDATE_NOTIFICATION
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            c.startForegroundService(serviceIntent)
+                        } else {
+                            c.startService(serviceIntent)
+                        }
+                    } catch (_: Exception) {}
+                }
+            } else {
+                play(context)
+            }
         }
     }
 
@@ -143,7 +217,6 @@ object PlaybackManager {
 
     fun previous(context: Context? = null) {
         if (currentPlaylist.isEmpty()) return
-        // If > 3 seconds in, restart track
         if (_playbackState.value.currentPositionMs > 3000L) {
             seekTo(0L)
             return
@@ -163,6 +236,7 @@ object PlaybackManager {
     }
 
     fun seekTo(positionMs: Long) {
+        audioEngine?.seekTo(positionMs)
         _playbackState.update {
             it.copy(currentPositionMs = positionMs.coerceIn(0L, it.durationMs))
         }
@@ -207,30 +281,18 @@ object PlaybackManager {
         progressJob?.cancel()
         progressJob = scope.launch {
             while (isActive && _playbackState.value.isPlaying) {
-                delay(250)
+                delay(300)
+                val engine = audioEngine
+                val realPos = engine?.currentPositionMs ?: 0L
+                val realDur = engine?.durationMs ?: 0L
+
                 _playbackState.update { state ->
-                    val nextPos = state.currentPositionMs + 250
-                    if (nextPos >= state.durationMs) {
-                        // Song ended
-                        when (state.repeatMode) {
-                            RepeatMode.ONE -> state.copy(currentPositionMs = 0L)
-                            RepeatMode.ALL -> {
-                                scope.launch { next() }
-                                state.copy(currentPositionMs = 0L)
-                            }
-                            RepeatMode.OFF -> {
-                                if (currentIndex < currentPlaylist.size - 1) {
-                                    scope.launch { next() }
-                                    state.copy(currentPositionMs = 0L)
-                                } else {
-                                    audioEngine?.pause()
-                                    state.copy(isPlaying = false, currentPositionMs = 0L)
-                                }
-                            }
-                        }
-                    } else {
-                        state.copy(currentPositionMs = nextPos)
-                    }
+                    val effectiveDur = if (realDur > 0L) realDur else state.durationMs
+                    val effectivePos = if (realPos > 0L) realPos else (state.currentPositionMs + 300L)
+                    state.copy(
+                        currentPositionMs = effectivePos.coerceAtMost(effectiveDur),
+                        durationMs = effectiveDur
+                    )
                 }
             }
         }

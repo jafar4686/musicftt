@@ -218,6 +218,62 @@ fun SettingsScreen(
                 }
             }
 
+            // Overlay permission info if applicable
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val hasOverlayPermission = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M ||
+                    android.provider.Settings.canDrawOverlays(context)
+
+            if (!hasOverlayPermission) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = DeepWarmBrown,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                        .border(1.dp, CaramelGold.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Overlay Permission Required",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = CaramelGold
+                            )
+                            Text(
+                                text = "Grant 'Display over other apps' to show the floating island circle on home screen and over other apps",
+                                fontSize = 11.sp,
+                                color = TextMutedSand
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                    val intent = android.content.Intent(
+                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        android.net.Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CaramelGold, contentColor = EspressoDark),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text(text = "Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = DeepWarmBrown,
@@ -325,7 +381,7 @@ fun SettingsScreen(
                                 .background(CaramelGold.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text(text = "v2.0.0", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CaramelGold)
+                            Text(text = "v2.1.0 (Version 2)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CaramelGold)
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
