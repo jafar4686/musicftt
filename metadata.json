@@ -1,0 +1,6 @@
+{
+  "name": "Aura Music",
+  "description": "Sleek minimalist music streaming player with curated playlist sharing, offline downloads, animated album art, and background playback notification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
