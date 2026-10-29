@@ -1,6 +1,6 @@
 {
   "name": "ASD MUSIC",
-  "description": "ASD MUSIC is a modern music player with pure white and dark themes, typewriter entrance, real-time Lark Player-inspired 5-band sound equalizer, bass booster, 3D surround sound, speed controls, and animated audio spectrum.",
+  "description": "ASD MUSIC is a fast 90 FPS music player with pure white and dark themes, genuine album cover art, transparent inline playback speed control, and smooth vinyl disc animations.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

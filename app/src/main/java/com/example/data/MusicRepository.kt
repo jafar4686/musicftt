@@ -149,6 +149,7 @@ class MusicRepository(private val context: Context) {
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST,
                 MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.DATA
             )
@@ -166,6 +167,7 @@ class MusicRepository(private val context: Context) {
                 val titleCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                 val artistCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                 val albumCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val albumIdCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
                 val durationCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val dataCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
@@ -176,10 +178,15 @@ class MusicRepository(private val context: Context) {
                     val title = it.getString(titleCol) ?: "Unknown Song"
                     val artist = it.getString(artistCol) ?: "Unknown Artist"
                     val album = it.getString(albumCol) ?: "Device Music"
+                    val albumId = it.getLong(albumIdCol)
                     val durationMs = it.getLong(durationCol)
                     val dataPath = it.getString(dataCol)
 
                     val uri: Uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                    val albumArtUri = ContentUris.withAppendedId(
+                        Uri.parse("content://media/external/audio/albumart"),
+                        albumId
+                    ).toString()
 
                     deviceTracks.add(
                         Track(
@@ -189,6 +196,7 @@ class MusicRepository(private val context: Context) {
                             album = album,
                             durationSeconds = (durationMs / 1000).toInt().coerceAtLeast(30),
                             genre = "Device Audio",
+                            coverUrl = albumArtUri,
                             isDownloaded = true,
                             localFilePath = dataPath ?: uri.toString(),
                             animatedStyle = AnimatedArtStyle.VINYL

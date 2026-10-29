@@ -40,7 +40,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.MusicViewModel
 import com.example.ui.components.AddSongDialog
 import com.example.ui.components.FullPlayerModal
-import com.example.ui.components.LarkSoundDialog
 import com.example.ui.components.MiniPlayerBar
 import com.example.ui.screens.SongsScreen
 import com.example.ui.screens.SplashScreen
@@ -172,6 +171,8 @@ fun MainScreenContent(
                 ) {
                     MiniPlayerBar(
                         playbackState = playbackState,
+                        playbackSpeed = soundSettings.playbackSpeed,
+                        onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
                         onTogglePlayPause = { viewModel.togglePlayPause() },
                         onNext = { viewModel.next() },
                         onClick = { viewModel.setFullPlayerVisible(true) }
@@ -193,12 +194,12 @@ fun MainScreenContent(
                 isDarkMode = isDarkMode,
                 hasPermissions = hasPermissions,
                 favoriteTrackIds = favoriteTrackIds,
+                playbackSpeed = soundSettings.playbackSpeed,
+                onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
                 onToggleDarkMode = { viewModel.toggleDarkMode() },
-                onOpenSoundSettings = { viewModel.openSoundSettings() },
                 onRequestPermissions = onRequestPermissions,
                 onPlayTrack = { viewModel.playTrack(it) },
                 onToggleFavorite = { viewModel.toggleFavorite(it) },
-                onScanDevice = { viewModel.scanDeviceAudio() },
                 onOpenAddSong = { viewModel.openAddSongDialog() }
             )
 
@@ -213,6 +214,8 @@ fun MainScreenContent(
                     val isFav = favoriteTrackIds.contains(curTrack.id)
                     FullPlayerModal(
                         playbackState = playbackState,
+                        playbackSpeed = soundSettings.playbackSpeed,
+                        onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
                         isFavorite = isFav,
                         onTogglePlayPause = { viewModel.togglePlayPause() },
                         onNext = { viewModel.next() },
@@ -221,27 +224,11 @@ fun MainScreenContent(
                         onToggleShuffle = { viewModel.toggleShuffle() },
                         onToggleRepeat = { viewModel.toggleRepeat() },
                         onToggleFavorite = { viewModel.toggleFavorite(curTrack.id) },
-                        onOpenSoundSettings = { viewModel.openSoundSettings() },
                         onClose = { viewModel.setFullPlayerVisible(false) }
                     )
                 }
             }
         }
-    }
-
-    // Lark Player-Style Sound Effects & Equalizer Sheet
-    if (showSoundSettings) {
-        LarkSoundDialog(
-            soundSettings = soundSettings,
-            isPlaying = playbackState.isPlaying,
-            onDismiss = { viewModel.closeSoundSettings() },
-            onToggleEnabled = { viewModel.toggleEqualizerEnabled() },
-            onSelectPreset = { viewModel.setEqualizerPreset(it) },
-            onSetBandLevel = { band, level -> viewModel.setBandLevel(band, level) },
-            onSetBassBoost = { viewModel.setBassBoost(it) },
-            onSetVirtualizer = { viewModel.setVirtualizer(it) },
-            onSetSpeed = { viewModel.setPlaybackSpeed(it) }
-        )
     }
 
     if (showAddSongDialog) {

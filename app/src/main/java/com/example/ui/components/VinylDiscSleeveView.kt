@@ -238,24 +238,18 @@ fun VinylDiscSleeveView(
                         )
                     }
 
-                    // Center emblem
+                    // Center Cover Art on the vinyl folder jacket
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "🎵", fontSize = 48.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = if (isPlaying) "PLAYING" else "PAUSED",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isPlaying) CaramelGold else TextMutedSand,
-                                letterSpacing = 2.sp
-                            )
-                        }
+                        SongCoverArtView(
+                            track = track,
+                            size = 100.dp,
+                            shapeRadius = 12.dp
+                        )
                     }
 
                     // Bottom info on folder

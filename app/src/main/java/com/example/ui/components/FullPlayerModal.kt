@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,13 +12,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -30,8 +27,6 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +35,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,14 +55,17 @@ import com.example.ui.theme.PlusBlue
 import com.example.ui.theme.PlusViolet
 
 /**
- * Fullscreen player modal for AsdMusic+.
- * Features the rotating vinyl disc sliding in and out of the folder,
- * Lark Player audio spectrum visualizer, direct sound equalizer button,
- * and full playback controls.
+ * Fullscreen player modal for ASD MUSIC.
+ * Lightweight, high-frame-rate (90 FPS) layout:
+ * - Real album cover art vinyl folder sleeve
+ * - Transparent speed indicator with inline slider (no separate interface)
+ * - Removed lagging mountain wave
  */
 @Composable
 fun FullPlayerModal(
     playbackState: PlaybackState,
+    playbackSpeed: Float = 1.0f,
+    onSetPlaybackSpeed: (Float) -> Unit = {},
     isFavorite: Boolean,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -72,26 +74,25 @@ fun FullPlayerModal(
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onOpenSoundSettings: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val track = playbackState.currentTrack ?: return
+    var showSpeedBar by remember { mutableStateOf(false) }
 
     Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("full_player_modal"),
+        modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Header Bar
             Row(
@@ -118,7 +119,7 @@ fun FullPlayerModal(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "ASD MUSIC",
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onBackground
                     )
@@ -131,27 +132,25 @@ fun FullPlayerModal(
                     )
                 }
 
-                // Lark Sound Settings Button
-                IconButton(
-                    onClick = onOpenSoundSettings,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(PlusBlue.copy(alpha = 0.12f))
-                        .testTag("player_sound_settings_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Equalizer,
-                        contentDescription = "Sound Settings",
-                        tint = PlusBlue,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                // Transparent Speed Indicator Button (taps open inline speed bar)
+                SpeedIndicatorButton(
+                    speed = playbackSpeed,
+                    isExpanded = showSpeedBar,
+                    onClick = { showSpeedBar = !showSpeedBar }
+                )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            // Inline Speed Adjustment Bar
+            SpeedAdjustmentBar(
+                visible = showSpeedBar,
+                currentSpeed = playbackSpeed,
+                onSpeedChange = onSetPlaybackSpeed,
+                onClose = { showSpeedBar = false }
+            )
 
-            // The rotating vinyl disc & folder sleeve
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // The rotating vinyl disc & folder sleeve (with real album cover art)
             VinylDiscSleeveView(
                 track = track,
                 isPlaying = playbackState.isPlaying,
@@ -159,18 +158,7 @@ fun FullPlayerModal(
                 size = 250.dp
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Animated Visualizer Spectrum (Lark Player style wave)
-            LarkSpectrumVisualizer(
-                isEnabled = true,
-                isPlaying = playbackState.isPlaying,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Track info
             Row(
@@ -189,7 +177,7 @@ fun FullPlayerModal(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${track.artist} • ${track.genre}",
+                        text = "${track.artist} • ${track.album}",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -212,7 +200,7 @@ fun FullPlayerModal(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Scrubber Slider
             Slider(
