@@ -1,6 +1,6 @@
 {
-  "name": "AsdMusic",
-  "description": "Clean and elegant music player with typewriter entrance, device audio scanner, background notification playback, and interactive vinyl disc sleeve animation.",
+  "name": "AsdMusic+",
+  "description": "AsdMusic+ is a modern music player with pure white and dark themes, typewriter entrance, real-time Lark Player-inspired 5-band sound equalizer, bass booster, 3D surround sound, speed controls, and animated audio spectrum.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

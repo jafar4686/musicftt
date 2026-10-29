@@ -3,6 +3,9 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.MusicRepository
+import com.example.model.EqualizerPreset
+import com.example.model.LarkSoundSettings
+import com.example.service.PlaybackManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -19,7 +22,7 @@ class ExampleRobolectricTest {
   fun `read string from context`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("AsdMusic", appName)
+    assertEquals("AsdMusic+", appName)
   }
 
   @Test
@@ -38,5 +41,23 @@ class ExampleRobolectricTest {
       assertNotNull(track)
       assertEquals("My TikTok Track", track.title)
     }
+  }
+
+  @Test
+  fun `lark sound settings update correctly`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    PlaybackManager.initialize(context)
+
+    PlaybackManager.setEqualizerPreset(EqualizerPreset.ROCK)
+    assertEquals(EqualizerPreset.ROCK, PlaybackManager.soundSettings.value.selectedPreset)
+
+    PlaybackManager.setBassBoost(80)
+    assertEquals(80, PlaybackManager.soundSettings.value.bassBoostPercent)
+
+    PlaybackManager.setVirtualizer(50)
+    assertEquals(50, PlaybackManager.soundSettings.value.virtualizer3DPercent)
+
+    PlaybackManager.setPlaybackSpeed(1.25f)
+    assertEquals(1.25f, PlaybackManager.soundSettings.value.playbackSpeed, 0.01f)
   }
 }

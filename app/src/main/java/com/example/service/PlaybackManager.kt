@@ -26,6 +26,9 @@ object PlaybackManager {
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    private val _soundSettings = MutableStateFlow(com.example.model.LarkSoundSettings())
+    val soundSettings: StateFlow<com.example.model.LarkSoundSettings> = _soundSettings.asStateFlow()
+
     private var audioEngine: AudioEngine? = null
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
@@ -275,6 +278,57 @@ object PlaybackManager {
 
     fun setFullPlayerVisible(visible: Boolean) {
         _playbackState.update { it.copy(isFullPlayerVisible = visible) }
+    }
+
+    fun updateSoundSettings(settings: com.example.model.LarkSoundSettings) {
+        _soundSettings.value = settings
+        audioEngine?.applySoundSettings(settings)
+    }
+
+    fun setEqualizerPreset(preset: com.example.model.EqualizerPreset) {
+        val bands = when (preset) {
+            com.example.model.EqualizerPreset.NORMAL -> listOf(0, 0, 0, 0, 0)
+            com.example.model.EqualizerPreset.BASS_BOOST -> listOf(6, 4, 1, 2, 4)
+            com.example.model.EqualizerPreset.ROCK -> listOf(5, 3, -1, 3, 5)
+            com.example.model.EqualizerPreset.POP -> listOf(-1, 2, 5, 2, -2)
+            com.example.model.EqualizerPreset.HIP_HOP -> listOf(5, 3, 0, 2, 4)
+            com.example.model.EqualizerPreset.JAZZ -> listOf(3, 1, 2, 2, 3)
+            com.example.model.EqualizerPreset.CLASSICAL -> listOf(4, 3, 0, 2, 3)
+            com.example.model.EqualizerPreset.DANCE -> listOf(5, 4, 2, 3, 4)
+            com.example.model.EqualizerPreset.ACOUSTIC -> listOf(3, 2, 3, 2, 1)
+            com.example.model.EqualizerPreset.FLAT -> listOf(0, 0, 0, 0, 0)
+        }
+        val bassBoost = if (preset == com.example.model.EqualizerPreset.BASS_BOOST) 75 else _soundSettings.value.bassBoostPercent
+        val updated = _soundSettings.value.copy(
+            selectedPreset = preset,
+            bandLevels = bands,
+            bassBoostPercent = bassBoost
+        )
+        updateSoundSettings(updated)
+    }
+
+    fun setBandLevel(bandIndex: Int, levelDb: Int) {
+        val currentBands = _soundSettings.value.bandLevels.toMutableList()
+        if (bandIndex in 0 until currentBands.size) {
+            currentBands[bandIndex] = levelDb.coerceIn(-10, 10)
+            updateSoundSettings(_soundSettings.value.copy(bandLevels = currentBands))
+        }
+    }
+
+    fun setBassBoost(percent: Int) {
+        updateSoundSettings(_soundSettings.value.copy(bassBoostPercent = percent.coerceIn(0, 100)))
+    }
+
+    fun setVirtualizer(percent: Int) {
+        updateSoundSettings(_soundSettings.value.copy(virtualizer3DPercent = percent.coerceIn(0, 100)))
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        updateSoundSettings(_soundSettings.value.copy(playbackSpeed = speed))
+    }
+
+    fun toggleEqualizerEnabled() {
+        updateSoundSettings(_soundSettings.value.copy(isEnabled = !_soundSettings.value.isEnabled))
     }
 
     private fun startProgressTracking() {

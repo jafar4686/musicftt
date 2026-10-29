@@ -56,7 +56,7 @@ fun SplashScreen(
     onFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val fullText = "Welcome to asd music"
+    val fullText = "Welcome to AsdMusic+"
     var displayedText by remember { mutableStateOf("") }
     val screenAlpha = remember { Animatable(1f) }
     val contentScale = remember { Animatable(0.95f) }
@@ -111,19 +111,26 @@ fun SplashScreen(
                 .padding(32.dp)
                 .scale(contentScale.value)
         ) {
-            // Elegant modern AsdMusic disc icon
+            // Elegant modern AsdMusic+ disc icon
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(80.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF1C1816))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(
+                            listOf(
+                                com.example.ui.theme.PlusBlue,
+                                com.example.ui.theme.PlusViolet
+                            )
+                        )
+                    )
             ) {
                 Icon(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
-                    tint = Color(0xFFD4A373),
-                    modifier = Modifier.size(36.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
                 )
             }
 
@@ -136,20 +143,20 @@ fun SplashScreen(
             ) {
                 Text(
                     text = displayedText,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E1714),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF111827),
                     fontFamily = FontFamily.SansSerif,
                     textAlign = TextAlign.Center,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = (-0.5).sp
                 )
 
                 // Cursor
                 Text(
                     text = "|",
-                    fontSize = 28.sp,
+                    fontSize = 30.sp,
                     fontWeight = FontWeight.Light,
-                    color = Color(0xFFD4A373).copy(alpha = cursorAlpha),
+                    color = com.example.ui.theme.PlusBlue.copy(alpha = cursorAlpha),
                     modifier = Modifier.padding(start = 2.dp)
                 )
             }
@@ -157,11 +164,11 @@ fun SplashScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "HIGH FIDELITY AUDIO PLAYER",
+                text = "ENHANCED LARK SOUND ENGINE",
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Bold,
                 letterSpacing = 2.5.sp,
-                color = Color(0xFF8A7968),
+                color = com.example.ui.theme.PlusBlue,
                 modifier = Modifier.alpha(if (displayedText.length > 8) 1f else 0f)
             )
         }

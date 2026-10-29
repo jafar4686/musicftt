@@ -20,18 +20,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,26 +34,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.AppScreen
 import com.example.ui.MusicViewModel
 import com.example.ui.components.AddSongDialog
 import com.example.ui.components.FullPlayerModal
+import com.example.ui.components.LarkSoundDialog
 import com.example.ui.components.MiniPlayerBar
-import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SongsScreen
 import com.example.ui.screens.SplashScreen
-import com.example.ui.theme.CaramelGold
-import com.example.ui.theme.CocoaBrown
-import com.example.ui.theme.DeepWarmBrown
 import com.example.ui.theme.MyApplicationTheme
-import com.example.ui.theme.TextCream
-import com.example.ui.theme.TextMutedSand
 
 class MainActivity : ComponentActivity() {
 
@@ -68,8 +53,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MyApplicationTheme {
-                val viewModel: MusicViewModel = viewModel()
+            val viewModel: MusicViewModel = viewModel()
+            val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
+
+            MyApplicationTheme(darkTheme = isDarkMode) {
                 val context = LocalContext.current
 
                 var isSplashActive by remember { mutableStateOf(true) }
@@ -131,6 +118,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     MainScreenContent(
                         viewModel = viewModel,
+                        isDarkMode = isDarkMode,
                         hasPermissions = hasPermissions,
                         onRequestPermissions = { requestRequiredPermissions() }
                     )
@@ -143,15 +131,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreenContent(
     viewModel: MusicViewModel,
+    isDarkMode: Boolean,
     hasPermissions: Boolean,
     onRequestPermissions: () -> Unit
 ) {
-    val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val soundSettings by viewModel.soundSettings.collectAsStateWithLifecycle()
+    val showSoundSettings by viewModel.showSoundSettings.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     val favoriteTrackIds by viewModel.favoriteTrackIds.collectAsStateWithLifecycle()
-    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
-    val storageSizeFormatted by viewModel.storageSizeFormatted.collectAsStateWithLifecycle()
     val showAddSongDialog by viewModel.showAddSongDialog.collectAsStateWithLifecycle()
     val snackMessage by viewModel.snackMessage.collectAsStateWithLifecycle()
 
@@ -164,52 +152,29 @@ fun MainScreenContent(
         }
     }
 
-    // Handle back button for full player and sub-screens
+    // Handle back button for full player
     BackHandler(enabled = playbackState.isFullPlayerVisible) {
         viewModel.setFullPlayerVisible(false)
     }
 
-    BackHandler(enabled = !playbackState.isFullPlayerVisible && currentScreen != AppScreen.SONGS) {
-        viewModel.navigateTo(AppScreen.SONGS)
-    }
-
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = CocoaBrown,
+        containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // Lower Mini Player Bar (tapping opens the full song interface)
-                if (playbackState.currentTrack != null && !playbackState.isFullPlayerVisible) {
+            // Mini Player Bar docked at the bottom with navigation bar insets
+            if (playbackState.currentTrack != null && !playbackState.isFullPlayerVisible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                ) {
                     MiniPlayerBar(
                         playbackState = playbackState,
                         onTogglePlayPause = { viewModel.togglePlayPause() },
                         onNext = { viewModel.next() },
                         onClick = { viewModel.setFullPlayerVisible(true) }
-                    )
-                }
-
-                // Bottom Navigation Bar
-                NavigationBar(
-                    containerColor = DeepWarmBrown,
-                    contentColor = TextCream,
-                    tonalElevation = 6.dp
-                ) {
-                    NavigationBarItem(
-                        selected = currentScreen == AppScreen.SONGS,
-                        onClick = { viewModel.navigateTo(AppScreen.SONGS) },
-                        icon = { Icon(Icons.Default.LibraryMusic, contentDescription = "Songs") },
-                        label = { Text("Songs", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                        colors = navigationBarColors()
-                    )
-
-                    NavigationBarItem(
-                        selected = currentScreen == AppScreen.SETTINGS,
-                        onClick = { viewModel.navigateTo(AppScreen.SETTINGS) },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                        colors = navigationBarColors()
                     )
                 }
             }
@@ -220,31 +185,22 @@ fun MainScreenContent(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentScreen) {
-                AppScreen.SONGS, AppScreen.PLAYLISTS, AppScreen.DOWNLOADS -> {
-                    SongsScreen(
-                        tracks = tracks,
-                        currentTrack = playbackState.currentTrack,
-                        isPlaying = playbackState.isPlaying,
-                        hasPermissions = hasPermissions,
-                        favoriteTrackIds = favoriteTrackIds,
-                        onRequestPermissions = onRequestPermissions,
-                        onPlayTrack = { viewModel.playTrack(it) },
-                        onToggleFavorite = { viewModel.toggleFavorite(it) },
-                        onScanDevice = { viewModel.scanDeviceAudio() },
-                        onOpenAddSong = { viewModel.openAddSongDialog() }
-                    )
-                }
-                AppScreen.SETTINGS -> {
-                    SettingsScreen(
-                        userProfile = userProfile,
-                        isDynamicIslandEnabled = playbackState.isDynamicIslandEnabled,
-                        onToggleDynamicIsland = { viewModel.setDynamicIslandEnabled(it) },
-                        storageSizeFormatted = storageSizeFormatted,
-                        onScanDevice = { viewModel.scanDeviceAudio() }
-                    )
-                }
-            }
+            // Main Song Library View
+            SongsScreen(
+                tracks = tracks,
+                currentTrack = playbackState.currentTrack,
+                isPlaying = playbackState.isPlaying,
+                isDarkMode = isDarkMode,
+                hasPermissions = hasPermissions,
+                favoriteTrackIds = favoriteTrackIds,
+                onToggleDarkMode = { viewModel.toggleDarkMode() },
+                onOpenSoundSettings = { viewModel.openSoundSettings() },
+                onRequestPermissions = onRequestPermissions,
+                onPlayTrack = { viewModel.playTrack(it) },
+                onToggleFavorite = { viewModel.toggleFavorite(it) },
+                onScanDevice = { viewModel.scanDeviceAudio() },
+                onOpenAddSong = { viewModel.openAddSongDialog() }
+            )
 
             // Fullscreen Player Modal with Rotating Vinyl Disc & Sleeve Folder
             AnimatedVisibility(
@@ -265,11 +221,27 @@ fun MainScreenContent(
                         onToggleShuffle = { viewModel.toggleShuffle() },
                         onToggleRepeat = { viewModel.toggleRepeat() },
                         onToggleFavorite = { viewModel.toggleFavorite(curTrack.id) },
+                        onOpenSoundSettings = { viewModel.openSoundSettings() },
                         onClose = { viewModel.setFullPlayerVisible(false) }
                     )
                 }
             }
         }
+    }
+
+    // Lark Player-Style Sound Effects & Equalizer Sheet
+    if (showSoundSettings) {
+        LarkSoundDialog(
+            soundSettings = soundSettings,
+            isPlaying = playbackState.isPlaying,
+            onDismiss = { viewModel.closeSoundSettings() },
+            onToggleEnabled = { viewModel.toggleEqualizerEnabled() },
+            onSelectPreset = { viewModel.setEqualizerPreset(it) },
+            onSetBandLevel = { band, level -> viewModel.setBandLevel(band, level) },
+            onSetBassBoost = { viewModel.setBassBoost(it) },
+            onSetVirtualizer = { viewModel.setVirtualizer(it) },
+            onSetSpeed = { viewModel.setPlaybackSpeed(it) }
+        )
     }
 
     if (showAddSongDialog) {
@@ -281,12 +253,3 @@ fun MainScreenContent(
         )
     }
 }
-
-@Composable
-private fun navigationBarColors() = NavigationBarItemDefaults.colors(
-    selectedIconColor = CaramelGold,
-    selectedTextColor = CaramelGold,
-    unselectedIconColor = TextMutedSand,
-    unselectedTextColor = TextMutedSand,
-    indicatorColor = CaramelGold.copy(alpha = 0.15f)
-)

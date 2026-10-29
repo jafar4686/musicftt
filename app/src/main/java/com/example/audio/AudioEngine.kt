@@ -3,18 +3,23 @@ package com.example.audio
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.PlaybackParams
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import com.example.R
+import com.example.model.LarkSoundSettings
 import com.example.model.Track
 import java.io.File
 
 /**
- * High-fidelity, real MediaPlayer engine for Android.
+ * High-fidelity, real MediaPlayer engine for AsdMusic+.
  * Plays actual media files (MP3, M4A, WAV), content URIs, and fallback acoustic audio.
- * Uses PowerManager.PARTIAL_WAKE_LOCK and AudioAttributes.USAGE_MEDIA to ensure
- * smooth, seamless, crystal-clear background playback when exiting the app.
+ * Integrates Lark Player-style Equalizer, Bass Boost, 3D Surround Virtualizer, and Speed.
  */
 class AudioEngine(
     private val context: Context,
@@ -23,6 +28,12 @@ class AudioEngine(
 ) {
 
     private var mediaPlayer: MediaPlayer? = null
+    private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
+
+    private var currentSoundSettings: LarkSoundSettings = LarkSoundSettings()
+
     private var isPrepared = false
     private var isPlayingState = false
     private var currentTrackId: String? = null
@@ -130,6 +141,8 @@ class AudioEngine(
             player.setOnPreparedListener { mp ->
                 isPrepared = true
                 try {
+                    attachAudioEffects(mp.audioSessionId)
+                    applySoundSettings(currentSoundSettings)
                     mp.start()
                     isPlayingState = true
                 } catch (e: Exception) {
@@ -156,6 +169,91 @@ class AudioEngine(
         } catch (t: Throwable) {
             Log.e("AudioEngine", "Fatal error creating MediaPlayer: ${t.message}")
             releasePlayerSafely()
+        }
+    }
+
+    private fun attachAudioEffects(audioSessionId: Int) {
+        if (audioSessionId == 0) return
+        try {
+            equalizer = Equalizer(0, audioSessionId).apply {
+                enabled = currentSoundSettings.isEnabled
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Equalizer attach error: ${e.message}")
+        }
+        try {
+            bassBoost = BassBoost(0, audioSessionId).apply {
+                enabled = currentSoundSettings.isEnabled
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "BassBoost attach error: ${e.message}")
+        }
+        try {
+            virtualizer = Virtualizer(0, audioSessionId).apply {
+                enabled = currentSoundSettings.isEnabled
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Virtualizer attach error: ${e.message}")
+        }
+    }
+
+    fun applySoundSettings(settings: LarkSoundSettings) {
+        currentSoundSettings = settings
+        try {
+            equalizer?.let { eq ->
+                eq.enabled = settings.isEnabled
+                if (settings.isEnabled) {
+                    val numBands = eq.numberOfBands.toInt()
+                    val range = eq.bandLevelRange // e.g. [-1500, 1500] in millibels
+                    val minMb = range[0]
+                    val maxMb = range[1]
+
+                    for (i in 0 until minOf(numBands, settings.bandLevels.size)) {
+                        val levelDb = settings.bandLevels[i] // -10 to +10 dB
+                        val millibels = (levelDb * 100).coerceIn(minMb.toInt(), maxMb.toInt()).toShort()
+                        eq.setBandLevel(i.toShort(), millibels)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Apply EQ error: ${e.message}")
+        }
+
+        try {
+            bassBoost?.let { bb ->
+                bb.enabled = settings.isEnabled
+                if (settings.isEnabled) {
+                    val strength = ((settings.bassBoostPercent / 100f) * 1000).toInt().coerceIn(0, 1000).toShort()
+                    bb.setStrength(strength)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Apply BassBoost error: ${e.message}")
+        }
+
+        try {
+            virtualizer?.let { virt ->
+                virt.enabled = settings.isEnabled
+                if (settings.isEnabled) {
+                    val strength = ((settings.virtualizer3DPercent / 100f) * 1000).toInt().coerceIn(0, 1000).toShort()
+                    virt.setStrength(strength)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Apply Virtualizer error: ${e.message}")
+        }
+
+        // Apply playback speed
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && mediaPlayer != null && isPrepared) {
+                mediaPlayer?.let { mp ->
+                    val params = mp.playbackParams
+                    params.speed = settings.playbackSpeed.coerceIn(0.25f, 3.0f)
+                    mp.playbackParams = params
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("AudioEngine", "Apply playback speed error: ${e.message}")
         }
     }
 
@@ -207,6 +305,21 @@ class AudioEngine(
     private fun releasePlayerSafely() {
         isPrepared = false
         isPlayingState = false
+        try {
+            equalizer?.release()
+        } catch (_: Exception) {}
+        equalizer = null
+
+        try {
+            bassBoost?.release()
+        } catch (_: Exception) {}
+        bassBoost = null
+
+        try {
+            virtualizer?.release()
+        } catch (_: Exception) {}
+        virtualizer = null
+
         try {
             mediaPlayer?.let {
                 if (it.isPlaying) {

@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,10 +13,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -26,8 +30,11 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -45,17 +52,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.PlaybackState
 import com.example.model.RepeatMode
-import com.example.ui.theme.BorderWarm
-import com.example.ui.theme.CaramelGold
-import com.example.ui.theme.CocoaBrown
-import com.example.ui.theme.EspressoDark
-import com.example.ui.theme.TextCream
-import com.example.ui.theme.TextMutedSand
+import com.example.ui.theme.PlusBlue
+import com.example.ui.theme.PlusViolet
 
 /**
- * Fullscreen player modal for AsdMusic.
+ * Fullscreen player modal for AsdMusic+.
  * Features the rotating vinyl disc sliding in and out of the folder,
- * full scrubber with elapsed/total minutes, and playback controls.
+ * Lark Player audio spectrum visualizer, direct sound equalizer button,
+ * and full playback controls.
  */
 @Composable
 fun FullPlayerModal(
@@ -68,6 +72,7 @@ fun FullPlayerModal(
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onOpenSoundSettings: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -77,7 +82,7 @@ fun FullPlayerModal(
         modifier = modifier
             .fillMaxSize()
             .testTag("full_player_modal"),
-        color = CocoaBrown
+        color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -86,7 +91,7 @@ fun FullPlayerModal(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Header Bar
             Row(
@@ -97,48 +102,62 @@ fun FullPlayerModal(
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .testTag("close_player_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = "Collapse Player",
-                        tint = TextCream,
-                        modifier = Modifier.size(30.dp)
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "AsdMusic PLAYER",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CaramelGold,
-                        letterSpacing = 2.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "AsdMusic",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            text = "+",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            color = PlusBlue
+                        )
+                    }
                     Text(
                         text = track.album,
-                        fontSize = 12.sp,
-                        color = TextMutedSand,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
+                // Lark Sound Settings Button
                 IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(48.dp)
+                    onClick = onOpenSoundSettings,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(PlusBlue.copy(alpha = 0.12f))
+                        .testTag("player_sound_settings_button")
                 ) {
                     Icon(
-                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (isFavorite) CaramelGold else TextMutedSand,
-                        modifier = Modifier.size(24.dp)
+                        imageVector = Icons.Default.Equalizer,
+                        contentDescription = "Sound Settings",
+                        tint = PlusBlue,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // The rotating vinyl disc & folder sleeve
             VinylDiscSleeveView(
@@ -148,32 +167,60 @@ fun FullPlayerModal(
                 size = 250.dp
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Animated Visualizer Spectrum (Lark Player style wave)
+            LarkSpectrumVisualizer(
+                isEnabled = true,
+                isPlaying = playbackState.isPlaying,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Track info
-            Column(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = track.title,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextCream,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${track.artist} • ${track.genre}",
-                    fontSize = 14.sp,
-                    color = TextMutedSand,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${track.artist} • ${track.genre}",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .testTag("full_player_fav_button")
+                ) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (isFavorite) PlusViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Scrubber Slider
             Slider(
@@ -182,9 +229,9 @@ fun FullPlayerModal(
                     onSeek((frac * playbackState.durationMs).toLong())
                 },
                 colors = SliderDefaults.colors(
-                    thumbColor = CaramelGold,
-                    activeTrackColor = CaramelGold,
-                    inactiveTrackColor = BorderWarm
+                    thumbColor = PlusBlue,
+                    activeTrackColor = PlusBlue,
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -199,16 +246,16 @@ fun FullPlayerModal(
                 Text(
                     text = "%d:%02d".format(curSec / 60, curSec % 60),
                     fontSize = 12.sp,
-                    color = TextMutedSand
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "%d:%02d".format(totalSec / 60, totalSec % 60),
                     fontSize = 12.sp,
-                    color = TextMutedSand
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Playback controls
             Row(
@@ -218,25 +265,25 @@ fun FullPlayerModal(
             ) {
                 IconButton(
                     onClick = onToggleShuffle,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Shuffle,
                         contentDescription = "Shuffle",
-                        tint = if (playbackState.isShuffle) CaramelGold else TextMutedSand,
+                        tint = if (playbackState.isShuffle) PlusBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onPrevious,
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Previous",
-                        tint = TextCream,
-                        modifier = Modifier.size(32.dp)
+                        tint = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.size(30.dp)
                     )
                 }
 
@@ -244,9 +291,9 @@ fun FullPlayerModal(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(68.dp)
+                        .size(66.dp)
                         .clip(CircleShape)
-                        .background(CaramelGold)
+                        .background(PlusBlue)
                         .shadow(8.dp, CircleShape)
                         .clickable { onTogglePlayPause() }
                         .testTag("full_player_play_pause")
@@ -254,26 +301,26 @@ fun FullPlayerModal(
                     Icon(
                         imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                        tint = EspressoDark,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onNext,
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Next",
-                        tint = TextCream,
+                        tint = Color.White,
                         modifier = Modifier.size(32.dp)
                     )
                 }
 
                 IconButton(
-                    onClick = onToggleRepeat,
+                    onClick = onNext,
                     modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = "Next",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleRepeat,
+                    modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
                         imageVector = when (playbackState.repeatMode) {
@@ -281,7 +328,7 @@ fun FullPlayerModal(
                             else -> Icons.Default.Repeat
                         },
                         contentDescription = "Repeat",
-                        tint = if (playbackState.repeatMode != RepeatMode.OFF) CaramelGold else TextMutedSand,
+                        tint = if (playbackState.repeatMode != RepeatMode.OFF) PlusBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
                 }

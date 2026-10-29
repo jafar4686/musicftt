@@ -94,3 +94,28 @@ data class PlaybackState(
 enum class RepeatMode {
     OFF, ONE, ALL
 }
+
+enum class EqualizerPreset(val title: String) {
+    NORMAL("Normal"),
+    BASS_BOOST("Bass Boost"),
+    ROCK("Rock"),
+    POP("Pop"),
+    HIP_HOP("Hip Hop"),
+    JAZZ("Jazz"),
+    CLASSICAL("Classical"),
+    DANCE("Dance"),
+    ACOUSTIC("Acoustic"),
+    FLAT("Flat")
+}
+
+data class LarkSoundSettings(
+    val isEnabled: Boolean = true,
+    val selectedPreset: EqualizerPreset = EqualizerPreset.BASS_BOOST,
+    // 5 bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz (level in dB from -10 to +10)
+    val bandLevels: List<Int> = listOf(4, 2, 0, 3, 5),
+    val bassBoostPercent: Int = 45, // 0 - 100
+    val virtualizer3DPercent: Int = 30, // 0 - 100
+    val playbackSpeed: Float = 1.0f, // 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x
+    val reverbEffect: String = "Studio" // Off, Studio, Club, Hall, Concert
+)
+

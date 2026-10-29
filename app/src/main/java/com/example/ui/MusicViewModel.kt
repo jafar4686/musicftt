@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.MusicRepository
 import com.example.model.AnimatedArtStyle
 import com.example.model.DownloadItem
+import com.example.model.EqualizerPreset
+import com.example.model.LarkSoundSettings
 import com.example.model.PlaybackState
 import com.example.model.Playlist
 import com.example.model.Track
@@ -19,19 +21,26 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 enum class AppScreen {
-    SONGS, PLAYLISTS, DOWNLOADS, SETTINGS
+    SONGS, SOUND_SETTINGS
 }
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MusicRepository(application)
     val playbackState: StateFlow<PlaybackState> = PlaybackManager.playbackState
+    val soundSettings: StateFlow<LarkSoundSettings> = PlaybackManager.soundSettings
 
     val tracks: StateFlow<List<Track>> = repository.tracks
     val userPlaylists: StateFlow<List<Playlist>> = repository.userPlaylists
     val downloads: StateFlow<List<DownloadItem>> = repository.downloads
     val favoriteTrackIds: StateFlow<Set<String>> = repository.favoriteTrackIds
     val userProfile: StateFlow<UserProfile> = repository.userProfile
+
+    private val _isDarkMode = MutableStateFlow(false) // Default is pure white as requested!
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _showSoundSettings = MutableStateFlow(false)
+    val showSoundSettings: StateFlow<Boolean> = _showSoundSettings.asStateFlow()
 
     private val _currentScreen = MutableStateFlow(AppScreen.SONGS)
     val currentScreen: StateFlow<AppScreen> = _currentScreen.asStateFlow()
@@ -45,7 +54,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _snackMessage = MutableStateFlow<String?>(null)
     val snackMessage: StateFlow<String?> = _snackMessage.asStateFlow()
 
-    val storageSizeFormatted: StateFlow<String> = repository.downloads.combine(repository.tracks) { dlList, trackList ->
+    val storageSizeFormatted: StateFlow<String> = repository.downloads.combine(repository.tracks) { dlList, _ ->
         val completedCount = dlList.count { it.status == com.example.model.DownloadStatus.COMPLETED }
         val sizeMb = completedCount * 5.4f + dlList.count { it.isVideo && it.status == com.example.model.DownloadStatus.COMPLETED } * 12.8f
         "%.1f MB".format(sizeMb)
@@ -53,6 +62,42 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         PlaybackManager.initialize(application)
+    }
+
+    fun toggleDarkMode() {
+        _isDarkMode.value = !_isDarkMode.value
+    }
+
+    fun openSoundSettings() {
+        _showSoundSettings.value = true
+    }
+
+    fun closeSoundSettings() {
+        _showSoundSettings.value = false
+    }
+
+    fun setEqualizerPreset(preset: EqualizerPreset) {
+        PlaybackManager.setEqualizerPreset(preset)
+    }
+
+    fun setBandLevel(bandIndex: Int, levelDb: Int) {
+        PlaybackManager.setBandLevel(bandIndex, levelDb)
+    }
+
+    fun setBassBoost(percent: Int) {
+        PlaybackManager.setBassBoost(percent)
+    }
+
+    fun setVirtualizer(percent: Int) {
+        PlaybackManager.setVirtualizer(percent)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        PlaybackManager.setPlaybackSpeed(speed)
+    }
+
+    fun toggleEqualizerEnabled() {
+        PlaybackManager.toggleEqualizerEnabled()
     }
 
     fun navigateTo(screen: AppScreen) {
