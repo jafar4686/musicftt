@@ -10,7 +10,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,8 +50,8 @@ import com.example.audio.SoundEffectsEngine
 import kotlinx.coroutines.delay
 
 /**
- * Pure white background entrance splash screen for AsdMusic.
- * Displays "Welcome to asd music" typed character-by-character with
+ * Pure white background entrance splash screen for ASD MUSIC.
+ * Displays "Welcome to ASD MUSIC" typed character-by-character with
  * a professional tactile entrance sound, then closes smoothly.
  */
 @Composable
@@ -56,7 +59,7 @@ fun SplashScreen(
     onFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val fullText = "Welcome to AsdMusic+"
+    val fullText = "Welcome to ASD MUSIC"
     var displayedText by remember { mutableStateOf("") }
     val screenAlpha = remember { Animatable(1f) }
     val contentScale = remember { Animatable(0.95f) }
@@ -111,26 +114,20 @@ fun SplashScreen(
                 .padding(32.dp)
                 .scale(contentScale.value)
         ) {
-            // Elegant modern AsdMusic+ disc icon
+            // Premium ASD MUSIC picture & logo badge
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(100.dp)
                     .clip(CircleShape)
-                    .background(
-                        androidx.compose.ui.graphics.Brush.linearGradient(
-                            listOf(
-                                com.example.ui.theme.PlusBlue,
-                                com.example.ui.theme.PlusViolet
-                            )
-                        )
-                    )
+                    .border(2.5.dp, com.example.ui.theme.PlusBlue, CircleShape)
             ) {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
+                Image(
+                    painter = painterResource(id = com.example.R.drawable.asd_music_logo),
+                    contentDescription = "ASD MUSIC Logo",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
                 )
             }
 

@@ -10,14 +10,14 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 35
 
   defaultConfig {
     applicationId = "com.aistudio.asdmusic.kxbvqz"
     minSdk = 24
-    targetSdk = 36
-    versionCode = 5
-    versionName = "3.0.0"
+    targetSdk = 34
+    versionCode = 6
+    versionName = "4.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -37,6 +37,8 @@ android {
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"
+      isV1SigningEnabled = true
+      isV2SigningEnabled = true
     }
   }
 

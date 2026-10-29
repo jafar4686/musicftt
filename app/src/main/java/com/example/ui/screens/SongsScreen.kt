@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -64,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,29 +137,22 @@ fun SongsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(id = com.example.R.drawable.asd_music_logo),
+                            contentDescription = "ASD MUSIC Logo",
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .border(1.5.dp, PlusBlue, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "AsdMusic",
-                            fontSize = 26.sp,
+                            text = "ASD MUSIC",
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.onBackground,
                             letterSpacing = (-0.5).sp
                         )
-                        Box(
-                            modifier = Modifier
-                                .padding(start = 4.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    Brush.horizontalGradient(listOf(PlusBlue, PlusViolet))
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "+",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
-                        }
                     }
 
                     // Action buttons: Dark Mode Toggle, Sound Equalizer, Refresh
@@ -387,7 +382,7 @@ fun SongsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Grant permission so AsdMusic+ can scan your local audio and provide full background playback.",
+                            text = "Grant permission so ASD MUSIC can scan your local audio and provide full background playback.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center

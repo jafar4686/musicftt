@@ -169,7 +169,7 @@ fun VinylDiscSleeveView(
                     modifier = Modifier.padding(4.dp)
                 ) {
                     Text(
-                        text = "AsdMusic",
+                        text = "ASD MUSIC",
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         color = EspressoDark,
@@ -223,7 +223,7 @@ fun VinylDiscSleeveView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "AsdMusic",
+                            text = "ASD MUSIC",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = CaramelGold,

@@ -116,20 +116,12 @@ fun FullPlayerModal(
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "AsdMusic",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = "+",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            color = PlusBlue
-                        )
-                    }
+                    Text(
+                        text = "ASD MUSIC",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                     Text(
                         text = track.album,
                         fontSize = 11.sp,

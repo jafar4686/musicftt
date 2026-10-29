@@ -48,7 +48,7 @@ class MusicPlaybackService : Service() {
         lastTrackId = track?.id
         lastIsPlaying = state.isPlaying
         val initialNotification = buildNotification(
-            title = track?.title ?: "AsdMusic Player",
+            title = track?.title ?: "ASD MUSIC",
             artist = track?.artist ?: "Background Playback Active",
             isPlaying = state.isPlaying
         )
@@ -132,7 +132,7 @@ class MusicPlaybackService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "AsdMusic Playback Controls",
+                "ASD MUSIC Playback Controls",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Seamless background playback controls and notification"
@@ -173,7 +173,7 @@ class MusicPlaybackService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(title)
-            .setContentText("$artist • AsdMusic")
+            .setContentText("$artist • ASD MUSIC")
             .setSubText("Now Playing")
             .setContentIntent(contentPendingIntent)
             .setOngoing(isPlaying)
