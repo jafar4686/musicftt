@@ -1,8 +1,11 @@
 package com.example.data
 
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import com.example.model.AnimatedArtStyle
@@ -19,12 +22,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 class MusicRepository(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO)
     private val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
+    private val metadataFile = File(context.filesDir, "downloaded_tracks_metadata.json")
 
     // Start clean at zero: only device tracks and user added downloads
     private val _tracks = MutableStateFlow<List<Track>>(emptyList())
@@ -116,18 +122,67 @@ class MusicRepository(private val context: Context) {
     }
 
     private fun loadOfflineCache() {
-        val files = downloadsDir.listFiles() ?: return
         val cachedTracks = mutableListOf<Track>()
+
+        // 1. Load from persistent metadata JSON (retaining exact title, custom title, artist, and local cover picture)
+        if (metadataFile.exists()) {
+            try {
+                val jsonStr = metadataFile.readText()
+                if (jsonStr.isNotBlank()) {
+                    val arr = JSONArray(jsonStr)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val filePath = obj.optString("localFilePath")
+                        val file = if (filePath.isNotBlank()) File(filePath) else null
+                        if (file != null && file.exists() && file.length() > 512) {
+                            val track = Track(
+                                id = obj.getString("id"),
+                                title = obj.getString("title"),
+                                artist = obj.getString("artist"),
+                                album = obj.optString("album", "ASD Downloads"),
+                                durationSeconds = obj.optInt("durationSeconds", 180),
+                                genre = obj.optString("genre", "TikTok Trend"),
+                                coverUrl = obj.optString("coverUrl").ifBlank { null },
+                                isVideo = obj.optBoolean("isVideo", false),
+                                isDownloaded = true,
+                                sourceUrl = obj.optString("sourceUrl").ifBlank { null },
+                                localFilePath = filePath,
+                                animatedStyle = AnimatedArtStyle.VINYL
+                            )
+                            cachedTracks.add(track)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MusicRepository", "Error reading metadata: ${e.message}")
+            }
+        }
+
+        // 2. Scan for any orphaned audio files in downloadsDir not yet in metadata
+        val existingPaths = cachedTracks.mapNotNull { it.localFilePath }.toSet()
+        val files = downloadsDir.listFiles() ?: emptyArray()
         files.forEach { file ->
-            if (file.isFile && (file.name.endsWith(".mp3") || file.name.endsWith(".mp4") || file.name.endsWith(".m4a"))) {
-                val cleanTitle = file.nameWithoutExtension.replace("_", " ")
+            if (file.isFile && !existingPaths.contains(file.absolutePath) &&
+                (file.name.endsWith(".mp3") || file.name.endsWith(".mp4") || file.name.endsWith(".m4a"))
+            ) {
+                val cleanTitle = file.nameWithoutExtension
+                    .replace(Regex("^tiktok_\\d+_"), "")
+                    .replace("_audio", "")
+                    .replace("_", " ")
+                    .trim()
+                    .ifBlank { "Downloaded Song" }
+
+                val coverFile = File(downloadsDir, "${file.nameWithoutExtension.substringBefore("_")}_cover.jpg")
+                val coverPath = if (coverFile.exists()) coverFile.absolutePath else null
+
                 val track = Track(
                     id = "cache_${file.name.hashCode()}",
                     title = cleanTitle,
-                    artist = "Offline Download",
-                    album = "Saved Storage",
-                    durationSeconds = 195,
+                    artist = "Saved Song",
+                    album = "Device Storage",
+                    durationSeconds = 180,
                     genre = "Local Audio",
+                    coverUrl = coverPath,
                     isDownloaded = true,
                     isVideo = file.name.endsWith(".mp4"),
                     localFilePath = file.absolutePath,
@@ -136,8 +191,22 @@ class MusicRepository(private val context: Context) {
                 cachedTracks.add(track)
             }
         }
+
         if (cachedTracks.isNotEmpty()) {
-            _tracks.update { it + cachedTracks }
+            _tracks.update { cachedTracks + it.filter { t -> cachedTracks.none { c -> c.id == t.id } } }
+            val dlItems = cachedTracks.map { t ->
+                DownloadItem(
+                    trackId = t.id,
+                    trackTitle = t.title,
+                    artist = t.artist,
+                    isVideo = t.isVideo,
+                    progress = 1.0f,
+                    status = DownloadStatus.COMPLETED,
+                    filePath = t.localFilePath
+                )
+            }
+            _downloads.update { dlItems }
+            persistDownloadedTracks()
         }
     }
 
@@ -455,6 +524,32 @@ class MusicRepository(private val context: Context) {
                 }
 
                 if (streamSuccess) {
+                    // Save cover art locally so picture never disappears upon restart or when offline
+                    var localCoverPath: String? = null
+                    if (!resolvedCoverUrl.isNullOrBlank()) {
+                        try {
+                            val coverFile = File(downloadsDir, "${trackId}_cover.jpg")
+                            val imgReq = okhttp3.Request.Builder()
+                                .url(resolvedCoverUrl!!)
+                                .header("User-Agent", "Mozilla/5.0")
+                                .build()
+                            okHttpClient.newCall(imgReq).execute().use { imgResp ->
+                                if (imgResp.isSuccessful) {
+                                    imgResp.body?.byteStream()?.use { input ->
+                                        coverFile.outputStream().use { output ->
+                                            input.copyTo(output)
+                                        }
+                                    }
+                                    if (coverFile.exists() && coverFile.length() > 100) {
+                                        localCoverPath = coverFile.absolutePath
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MusicRepository", "Local cover save: ${e.message}")
+                        }
+                    }
+
                     val readyTrack = Track(
                         id = trackId,
                         title = finalTitle,
@@ -462,7 +557,7 @@ class MusicRepository(private val context: Context) {
                         album = if (isVideo) "TikTok Video" else "TikTok Audio",
                         durationSeconds = resolvedDurationSec,
                         genre = "TikTok Trend",
-                        coverUrl = resolvedCoverUrl,
+                        coverUrl = localCoverPath ?: resolvedCoverUrl,
                         isVideo = isVideo,
                         isDownloaded = true,
                         sourceUrl = mediaStreamUrl ?: cleanUrl,
@@ -470,16 +565,26 @@ class MusicRepository(private val context: Context) {
                         animatedStyle = AnimatedArtStyle.VINYL
                     )
 
-                    _tracks.update { listOf(readyTrack) + it }
+                    _tracks.update { listOf(readyTrack) + it.filter { t -> t.id != readyTrack.id } }
                     _downloads.update { list ->
-                        list.map {
-                            if (it.trackId == trackId) it.copy(
+                        listOf(
+                            DownloadItem(
+                                trackId = trackId,
+                                trackTitle = finalTitle,
+                                artist = finalArtist,
+                                isVideo = isVideo,
                                 progress = 1.0f,
                                 status = DownloadStatus.COMPLETED,
                                 filePath = targetFile.absolutePath
-                            ) else it
-                        }
+                            )
+                        ) + list.filter { it.trackId != trackId }
                     }
+
+                    // 1. Permanently save to metadata JSON registry
+                    persistDownloadedTracks()
+
+                    // 2. Export and register copy in device public storage (MediaStore)
+                    saveToMediaStore(targetFile, finalTitle, finalArtist, isVideo)
 
                     onComplete(readyTrack)
                 } else {
@@ -497,13 +602,95 @@ class MusicRepository(private val context: Context) {
         }
     }
 
+    private fun persistDownloadedTracks() {
+        try {
+            val downloadedTracks = _tracks.value.filter { it.isDownloaded && !it.localFilePath.isNullOrBlank() }
+            val arr = JSONArray()
+            for (track in downloadedTracks) {
+                val obj = JSONObject().apply {
+                    put("id", track.id)
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("album", track.album)
+                    put("durationSeconds", track.durationSeconds)
+                    put("genre", track.genre)
+                    put("coverUrl", track.coverUrl ?: "")
+                    put("isVideo", track.isVideo)
+                    put("sourceUrl", track.sourceUrl ?: "")
+                    put("localFilePath", track.localFilePath ?: "")
+                }
+                arr.put(obj)
+            }
+            metadataFile.writeText(arr.toString())
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "persistDownloadedTracks: ${e.message}")
+        }
+    }
+
+    private fun saveToMediaStore(file: File, title: String, artist: String, isVideo: Boolean) {
+        try {
+            val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9._ -]"), "").take(50).ifBlank { "Song" }
+            val ext = if (isVideo) "mp4" else "mp3"
+            val mime = if (isVideo) "video/mp4" else "audio/mpeg"
+
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "$sanitizedTitle.$ext")
+                put(MediaStore.MediaColumns.TITLE, title)
+                put(MediaStore.MediaColumns.ARTIST, artist)
+                put(MediaStore.MediaColumns.ALBUM, "ASD Music")
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(
+                        MediaStore.MediaColumns.RELATIVE_PATH,
+                        if (isVideo) Environment.DIRECTORY_MOVIES + "/ASDMusic" else Environment.DIRECTORY_MUSIC + "/ASDMusic"
+                    )
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            }
+
+            val collection = if (isVideo) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                }
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                }
+            }
+
+            val uri = context.contentResolver.insert(collection, contentValues)
+            if (uri != null) {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    file.inputStream().use { input ->
+                        input.copyTo(output)
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    context.contentResolver.update(uri, contentValues, null, null)
+                }
+                Log.d("MusicRepository", "Saved copy to device public MediaStore: $uri")
+            }
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "saveToMediaStore: ${e.message}")
+        }
+    }
+
     fun removeTrack(trackId: String) {
         _tracks.update { it.filter { t -> t.id != trackId } }
         _downloads.update { it.filter { d -> d.trackId != trackId } }
+        persistDownloadedTracks()
         val f1 = File(downloadsDir, "${trackId}_audio.mp3")
         if (f1.exists()) f1.delete()
         val f2 = File(downloadsDir, "${trackId}_audio.mp4")
         if (f2.exists()) f2.delete()
+        val f3 = File(downloadsDir, "${trackId}_cover.jpg")
+        if (f3.exists()) f3.delete()
     }
 
     fun toggleFavorite(trackId: String) {
