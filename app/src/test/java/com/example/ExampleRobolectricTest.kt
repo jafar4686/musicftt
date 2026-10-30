@@ -36,11 +36,12 @@ class ExampleRobolectricTest {
       url = "https://tiktok.com/@creator/video/123",
       customTitle = "My TikTok Track",
       customArtist = "Creator",
-      isVideo = false
-    ) { track ->
-      assertNotNull(track)
-      assertEquals("My TikTok Track", track.title)
-    }
+      isVideo = false,
+      onComplete = { track ->
+        assertNotNull(track)
+        assertEquals("My TikTok Track", track.title)
+      }
+    )
   }
 
   @Test

@@ -203,11 +203,17 @@ fun MainScreenContent(
                 onOpenAddSong = { viewModel.openAddSongDialog() }
             )
 
-            // Fullscreen Player Modal with Rotating Vinyl Disc & Sleeve Folder
+            // Fullscreen Player Modal with Rotating Vinyl Disc & Sleeve Folder (fast & snappy navigation)
             AnimatedVisibility(
                 visible = playbackState.isFullPlayerVisible && playbackState.currentTrack != null,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = androidx.compose.animation.core.tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = androidx.compose.animation.core.tween(170)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = androidx.compose.animation.core.tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)
+                ) + fadeOut(animationSpec = androidx.compose.animation.core.tween(150))
             ) {
                 val curTrack = playbackState.currentTrack
                 if (curTrack != null) {

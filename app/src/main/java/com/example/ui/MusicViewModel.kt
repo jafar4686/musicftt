@@ -177,11 +177,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun downloadAndPlayLink(url: String, title: String?, artist: String?, isVideo: Boolean) {
         _showAddSongDialog.value = false
-        _snackMessage.value = "Downloading ${if (isVideo) "video" else "audio"} from link..."
-        repository.addAndDownloadFromLink(url, title, artist, isVideo) { downloadedTrack ->
-            _snackMessage.value = "Downloaded '${downloadedTrack.title}'!"
-            playTrack(downloadedTrack)
-        }
+        _snackMessage.value = "Downloading ${if (isVideo) "video" else "audio"} from TikTok..."
+        repository.addAndDownloadFromLink(
+            url = url,
+            customTitle = title,
+            customArtist = artist,
+            isVideo = isVideo,
+            onComplete = { downloadedTrack ->
+                _snackMessage.value = "Downloaded '${downloadedTrack.title}'!"
+                playTrack(downloadedTrack)
+            },
+            onError = { err ->
+                _snackMessage.value = err
+            }
+        )
     }
 
     fun clearSnackMessage() {

@@ -237,8 +237,8 @@ fun AddSongDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(
-                        "TikTok Sound #1" to "https://www.tiktok.com/@music/sound/7106594312292453678",
-                        "TikTok Viral Beat" to "https://vm.tiktok.com/ZM8rViralBeat/"
+                        "Viral Pet Sound" to "https://www.tiktok.com/@scout2015/video/6718335390845095173",
+                        "TikTok Sound" to "https://www.tiktok.com/@scout2015/video/6718335390845095173"
                     ).forEach { (label, sampleUrl) ->
                         Surface(
                             shape = RoundedCornerShape(10.dp),

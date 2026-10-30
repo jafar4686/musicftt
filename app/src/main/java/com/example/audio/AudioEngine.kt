@@ -108,8 +108,7 @@ class AudioEngine(
 
             // 2. Try source URL if it's a valid remote stream
             if (!dataSourceSet && !track.sourceUrl.isNullOrBlank() &&
-                (track.sourceUrl.startsWith("http://") || track.sourceUrl.startsWith("https://")) &&
-                (track.sourceUrl.endsWith(".mp3") || track.sourceUrl.endsWith(".m4a") || track.sourceUrl.endsWith(".wav") || track.sourceUrl.endsWith(".ogg"))
+                (track.sourceUrl.startsWith("http://") || track.sourceUrl.startsWith("https://"))
             ) {
                 try {
                     player.setDataSource(track.sourceUrl)

@@ -332,7 +332,7 @@ object PlaybackManager {
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        updateSoundSettings(_soundSettings.value.copy(playbackSpeed = speed))
+        updateSoundSettings(_soundSettings.value.copy(playbackSpeed = speed.coerceIn(0.5f, 2.0f)))
     }
 
     fun toggleEqualizerEnabled() {

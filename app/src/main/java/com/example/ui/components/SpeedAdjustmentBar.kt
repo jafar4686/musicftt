@@ -102,8 +102,8 @@ fun SpeedAdjustmentBar(
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(140)) + expandVertically(animationSpec = androidx.compose.animation.core.tween(140)),
+        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(120)) + shrinkVertically(animationSpec = androidx.compose.animation.core.tween(120)),
         modifier = modifier
     ) {
         Card(
@@ -164,14 +164,14 @@ fun SpeedAdjustmentBar(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Smooth speed slider (0.5x to 3.0x)
+                // Smooth speed slider (0.5x to 2.0x per user request)
                 Slider(
-                    value = currentSpeed,
+                    value = currentSpeed.coerceIn(0.5f, 2.0f),
                     onValueChange = { raw ->
                         val stepped = (raw * 20).roundToInt() / 20f
-                        onSpeedChange(stepped.coerceIn(0.5f, 3.0f))
+                        onSpeedChange(stepped.coerceIn(0.5f, 2.0f))
                     },
-                    valueRange = 0.5f..3.0f,
+                    valueRange = 0.5f..2.0f,
                     colors = SliderDefaults.colors(
                         thumbColor = PlusBlue,
                         activeTrackColor = PlusBlue,
@@ -180,12 +180,12 @@ fun SpeedAdjustmentBar(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Quick preset chips including higher speed options
+                // Quick preset chips up to 2.0x (reduced back from 3.0x)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val presets = listOf(1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f)
+                    val presets = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
                     presets.forEach { speedVal ->
                         val isSelected = kotlin.math.abs(currentSpeed - speedVal) < 0.04f
                         Box(
