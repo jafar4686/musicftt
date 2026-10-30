@@ -60,4 +60,32 @@ class ExampleRobolectricTest {
     PlaybackManager.setPlaybackSpeed(1.25f)
     assertEquals(1.25f, PlaybackManager.soundSettings.value.playbackSpeed, 0.01f)
   }
+
+  @Test
+  fun `sequential playback plays tracks one after the other in order`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    PlaybackManager.initialize(context)
+
+    val sampleList = (1..15).map { num ->
+      com.example.model.Track(
+        id = "track_$num",
+        title = "Song Number $num",
+        artist = "Artist $num",
+        durationSeconds = 180
+      )
+    }
+
+    // Play song number 10
+    val songTen = sampleList[9]
+    PlaybackManager.playTrack(songTen, sampleList, context)
+    assertEquals("track_10", PlaybackManager.playbackState.value.currentTrack?.id)
+
+    // Trigger next - MUST be song number 11 (index 10), NEVER song number 8
+    PlaybackManager.next(context)
+    assertEquals("track_11", PlaybackManager.playbackState.value.currentTrack?.id)
+
+    // Trigger next again - MUST be song number 12
+    PlaybackManager.next(context)
+    assertEquals("track_12", PlaybackManager.playbackState.value.currentTrack?.id)
+  }
 }

@@ -97,14 +97,22 @@ object PlaybackManager {
         }
     }
 
-    fun playTrack(track: Track, context: Context? = null) {
+    fun playTrack(track: Track, allTracks: List<Track>? = null, context: Context? = null) {
         val ctx = context ?: appContext
-        val foundIndex = currentPlaylist.indexOfFirst { it.id == track.id }
-        if (foundIndex != -1) {
-            currentIndex = foundIndex
+        
+        // If the caller provided the full ordered list, update currentPlaylist to maintain exact order
+        if (!allTracks.isNullOrEmpty()) {
+            currentPlaylist = allTracks
+            val foundIdx = currentPlaylist.indexOfFirst { it.id == track.id }
+            currentIndex = if (foundIdx != -1) foundIdx else 0
         } else {
-            currentPlaylist = listOf(track) + currentPlaylist
-            currentIndex = 0
+            val foundIndex = currentPlaylist.indexOfFirst { it.id == track.id }
+            if (foundIndex != -1) {
+                currentIndex = foundIndex
+            } else {
+                currentPlaylist = currentPlaylist + listOf(track)
+                currentIndex = currentPlaylist.size - 1
+            }
         }
 
         _playbackState.update {

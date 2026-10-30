@@ -81,18 +81,18 @@ fun SplashScreen(
         contentScale.animateTo(1f, animationSpec = tween(600))
         delay(250)
 
-        // Typewriter loop
+        // Faster typewriter loop
         for (i in 1..fullText.length) {
             displayedText = fullText.substring(0, i)
             SoundEffectsEngine.playTypewriterClick()
-            delay(75)
+            delay(35)
         }
 
         // Play the polyphonic harmonic entrance chime when typing completes
         SoundEffectsEngine.playEntranceChime()
 
-        // Hold momentarily so the chime resonates and the user sees the complete welcome
-        delay(900)
+        // Hold momentarily so the chime resonates
+        delay(400)
 
         // Smooth closing transition ("and then they close again")
         screenAlpha.animateTo(0f, animationSpec = tween(500))

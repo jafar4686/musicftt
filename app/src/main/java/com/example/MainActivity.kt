@@ -198,7 +198,7 @@ fun MainScreenContent(
                 onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
                 onToggleDarkMode = { viewModel.toggleDarkMode() },
                 onRequestPermissions = onRequestPermissions,
-                onPlayTrack = { viewModel.playTrack(it) },
+                onPlayTrack = { tr, list -> viewModel.playTrack(tr, list) },
                 onToggleFavorite = { viewModel.toggleFavorite(it) },
                 onOpenAddSong = { viewModel.openAddSongDialog() }
             )

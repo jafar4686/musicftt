@@ -235,56 +235,99 @@ class MusicRepository(private val context: Context) {
         onComplete: (Track) -> Unit
     ) {
         val cleanUrl = url.trim()
-        val detectedTitle = when {
-            !customTitle.isNullOrBlank() -> customTitle.trim()
-            cleanUrl.contains("tiktok", ignoreCase = true) -> "TikTok Sound #${(100..999).random()}"
-            cleanUrl.contains("youtu", ignoreCase = true) -> "YouTube Track #${(100..999).random()}"
-            else -> cleanUrl.substringAfterLast("/").substringBefore("?").ifBlank { "Downloaded Track #${(100..999).random()}" }
-        }
-
-        val detectedArtist = when {
-            !customArtist.isNullOrBlank() -> customArtist.trim()
-            cleanUrl.contains("tiktok", ignoreCase = true) -> "TikTok Creator"
-            cleanUrl.contains("youtu", ignoreCase = true) -> "YouTube Music"
-            else -> "Web Audio"
-        }
-
-        val trackId = "dl_${System.currentTimeMillis()}"
+        val trackId = "tiktok_${System.currentTimeMillis()}"
         val ext = if (isVideo) "mp4" else "mp3"
         val targetFile = File(downloadsDir, "${trackId}_audio.$ext")
 
-        val newTrack = Track(
-            id = trackId,
-            title = detectedTitle,
-            artist = detectedArtist,
-            album = if (isVideo) "Downloaded Video" else "Downloaded Audio",
-            durationSeconds = (150..240).random(),
-            genre = if (cleanUrl.contains("tiktok", ignoreCase = true)) "TikTok Trend" else "Online Stream",
-            isVideo = isVideo,
-            isDownloaded = false,
-            sourceUrl = cleanUrl,
-            localFilePath = targetFile.absolutePath,
-            animatedStyle = if (isVideo) AnimatedArtStyle.ACOUSTIC_BARS else AnimatedArtStyle.VINYL
-        )
-
-        // Queue item in downloads list
-        val dlItem = DownloadItem(
-            trackId = trackId,
-            trackTitle = detectedTitle,
-            artist = detectedArtist,
-            isVideo = isVideo,
-            progress = 0f,
-            status = DownloadStatus.DOWNLOADING,
-            sourceUrl = cleanUrl,
-            sizeText = if (isVideo) "18.2 MB" else "5.4 MB"
-        )
-        _downloads.update { listOf(dlItem) + it }
-
-        // Start asynchronous simulated download and file write
         scope.launch {
+            // Attempt to resolve real TikTok metadata via official oEmbed if available
+            var resolvedTitle: String? = customTitle?.trim()?.ifBlank { null }
+            var resolvedArtist: String? = customArtist?.trim()?.ifBlank { null }
+            var resolvedCoverUrl: String? = null
+
+            if (resolvedTitle == null || resolvedArtist == null) {
+                try {
+                    val oembedUrl = "https://www.tiktok.com/oembed?url=${java.net.URLEncoder.encode(cleanUrl, "UTF-8")}"
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                    val request = okhttp3.Request.Builder()
+                        .url(oembedUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val bodyStr = response.body?.string()
+                            if (!bodyStr.isNullOrBlank()) {
+                                val json = org.json.JSONObject(bodyStr)
+                                if (resolvedTitle == null && json.has("title")) {
+                                    val t = json.getString("title").trim()
+                                    if (t.isNotBlank()) resolvedTitle = t
+                                }
+                                if (resolvedArtist == null && json.has("author_name")) {
+                                    val a = json.getString("author_name").trim()
+                                    if (a.isNotBlank()) resolvedArtist = a
+                                }
+                                if (json.has("thumbnail_url")) {
+                                    resolvedCoverUrl = json.getString("thumbnail_url")
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MusicRepository", "TikTok oembed fetch handled: ${e.message}")
+                }
+            }
+
+            // Fallback smart naming if not specified or parsed
+            val finalTitle = resolvedTitle ?: run {
+                val segment = cleanUrl.substringAfterLast("/").substringBefore("?").replace("-", " ")
+                if (segment.isNotBlank() && segment.length in 3..40) {
+                    "TikTok • $segment"
+                } else {
+                    "TikTok Sound #${(100..999).random()}"
+                }
+            }
+
+            val finalArtist = resolvedArtist ?: run {
+                val userSegment = cleanUrl.substringAfter("@", "").substringBefore("/")
+                if (userSegment.isNotBlank()) "@$userSegment" else "TikTok Creator"
+            }
+
+            val newTrack = Track(
+                id = trackId,
+                title = finalTitle,
+                artist = finalArtist,
+                album = if (isVideo) "TikTok Video" else "TikTok Sounds",
+                durationSeconds = (140..220).random(),
+                genre = "TikTok Trend",
+                coverUrl = resolvedCoverUrl,
+                isVideo = isVideo,
+                isDownloaded = false,
+                sourceUrl = cleanUrl,
+                localFilePath = targetFile.absolutePath,
+                animatedStyle = AnimatedArtStyle.VINYL
+            )
+
+            // Queue item in downloads list
+            val dlItem = DownloadItem(
+                trackId = trackId,
+                trackTitle = finalTitle,
+                artist = finalArtist,
+                isVideo = isVideo,
+                progress = 0f,
+                status = DownloadStatus.DOWNLOADING,
+                sourceUrl = cleanUrl,
+                sizeText = if (isVideo) "14.2 MB" else "4.8 MB"
+            )
+            _downloads.update { listOf(dlItem) + it }
+
             try {
+                // Simulate yt-dlp downloading progress quickly & smoothly
                 for (step in 1..10) {
-                    delay(150)
+                    delay(80)
                     _downloads.update { list ->
                         list.map { if (it.trackId == trackId) it.copy(progress = step / 10f) else it }
                     }
@@ -303,6 +346,7 @@ class MusicRepository(private val context: Context) {
 
                 val readyTrack = newTrack.copy(isDownloaded = true)
 
+                // Append newly downloaded track to the library
                 _tracks.update { listOf(readyTrack) + it }
                 _downloads.update { list ->
                     list.map {

@@ -108,8 +108,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _selectedPlaylist.value = playlist
     }
 
-    fun playTrack(track: Track) {
-        PlaybackManager.playTrack(track, getApplication())
+    fun playTrack(track: Track, currentList: List<Track>? = null) {
+        val list = currentList ?: tracks.value
+        PlaybackManager.playTrack(track, list, getApplication())
     }
 
     fun togglePlayPause() {

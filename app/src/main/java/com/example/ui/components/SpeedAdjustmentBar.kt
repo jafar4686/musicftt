@@ -164,14 +164,14 @@ fun SpeedAdjustmentBar(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Smooth speed slider (0.5x to 2.0x)
+                // Smooth speed slider (0.5x to 3.0x)
                 Slider(
                     value = currentSpeed,
                     onValueChange = { raw ->
                         val stepped = (raw * 20).roundToInt() / 20f
-                        onSpeedChange(stepped.coerceIn(0.5f, 2.0f))
+                        onSpeedChange(stepped.coerceIn(0.5f, 3.0f))
                     },
-                    valueRange = 0.5f..2.0f,
+                    valueRange = 0.5f..3.0f,
                     colors = SliderDefaults.colors(
                         thumbColor = PlusBlue,
                         activeTrackColor = PlusBlue,
@@ -180,12 +180,12 @@ fun SpeedAdjustmentBar(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Quick preset chips
+                // Quick preset chips including higher speed options
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val presets = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+                    val presets = listOf(1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f)
                     presets.forEach { speedVal ->
                         val isSelected = kotlin.math.abs(currentSpeed - speedVal) < 0.04f
                         Box(

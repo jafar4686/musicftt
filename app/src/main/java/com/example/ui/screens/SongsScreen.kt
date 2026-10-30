@@ -88,7 +88,7 @@ fun SongsScreen(
     onSetPlaybackSpeed: (Float) -> Unit = {},
     onToggleDarkMode: () -> Unit,
     onRequestPermissions: () -> Unit,
-    onPlayTrack: (Track) -> Unit,
+    onPlayTrack: (Track, List<Track>) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onOpenAddSong: () -> Unit = {}
 ) {
@@ -259,30 +259,27 @@ fun SongsScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Add Song / Link Download button
+                    // Real TikTok Song Download button
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = PlusBlue.copy(alpha = 0.12f)
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
                         ),
-                        modifier = Modifier.clickable { onOpenAddSong() }
+                        modifier = Modifier
+                            .clickable { onOpenAddSong() }
+                            .testTag("add_tiktok_song_button")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Add Track",
-                                tint = PlusBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            com.example.ui.components.TikTokLogoIcon(size = 20.dp)
                             Text(
-                                text = "Add",
+                                text = "Add TikTok",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = PlusBlue
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -402,7 +399,7 @@ fun SongsScreen(
                     isCurrent = isCurrent,
                     isPlaying = isPlaying && isCurrent,
                     isFavorite = isFavorite,
-                    onClick = { onPlayTrack(track) },
+                    onClick = { onPlayTrack(track, filteredTracks) },
                     onToggleFavorite = { onToggleFavorite(track.id) }
                 )
             }
