@@ -42,6 +42,18 @@ class ExampleRobolectricTest {
         assertEquals("My TikTok Track", track.title)
       }
     )
+
+    repository.addAndDownloadFromLink(
+      url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      customTitle = "Never Gonna Give You Up",
+      customArtist = "Rick Astley",
+      isVideo = false,
+      onComplete = { track ->
+        assertNotNull(track)
+        assertEquals("Never Gonna Give You Up", track.title)
+        assertEquals("YouTube Stream", track.genre)
+      }
+    )
   }
 
   @Test

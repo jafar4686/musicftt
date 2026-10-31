@@ -259,7 +259,7 @@ fun SongsScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Real TikTok Song Download button
+                    // Universal Download button (TikTok, YouTube, Google Web)
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
@@ -270,13 +270,16 @@ fun SongsScreen(
                             .testTag("add_tiktok_song_button")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            com.example.ui.components.TikTokLogoIcon(size = 20.dp)
+                            com.example.ui.components.TikTokLogoIcon(size = 18.dp)
+                            com.example.ui.components.YouTubeLogoIcon(size = 18.dp)
+                            com.example.ui.components.GoogleWebIcon(size = 18.dp)
+                            Spacer(modifier = Modifier.width(2.dp))
                             Text(
-                                text = "Add TikTok",
+                                text = "Download",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface

@@ -145,11 +145,113 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTikTokNote(
 }
 
 /**
- * Dedicated TikTok Song Downloader Dialog:
- * - Prominent TikTok logo
- * - Downloads full TikTok songs and audio
- * - Automatic title/artist detection if empty
- * - Strictly validates TikTok links
+ * High-definition YouTube Play Button Logo.
+ * Crisp red rounded badge with white centered play triangle.
+ */
+@Composable
+fun YouTubeLogoIcon(
+    modifier: Modifier = Modifier,
+    size: Dp = 28.dp
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.28f))
+            .background(Color(0xFFFF0000)),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(size * 0.45f)) {
+            val path = Path().apply {
+                moveTo(0f, 0f)
+                lineTo(this@Canvas.size.width, this@Canvas.size.height / 2f)
+                lineTo(0f, this@Canvas.size.height)
+                close()
+            }
+            drawPath(path = path, color = Color.White)
+        }
+    }
+}
+
+/**
+ * Modern Google & Web Link Icon.
+ * Multi-colored badge with Google Blue accent.
+ */
+@Composable
+fun GoogleWebIcon(
+    modifier: Modifier = Modifier,
+    size: Dp = 28.dp
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.White)
+            .border(1.dp, Color(0xFFE0E0E0), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(size * 0.65f)) {
+            val strokeW = this.size.width * 0.12f
+            val radius = (this.size.width - strokeW) / 2f
+            val center = Offset(this.size.width / 2f, this.size.height / 2f)
+
+            // Draw Google 4-color segmented ring
+            // Red (top)
+            drawArc(
+                color = Color(0xFFEA4335),
+                startAngle = 200f,
+                sweepAngle = 100f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeW)
+            )
+            // Yellow (bottom-left)
+            drawArc(
+                color = Color(0xFFFBBC05),
+                startAngle = 120f,
+                sweepAngle = 80f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeW)
+            )
+            // Green (bottom)
+            drawArc(
+                color = Color(0xFF34A853),
+                startAngle = 30f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeW)
+            )
+            // Blue (right & crossbar)
+            drawArc(
+                color = Color(0xFF4285F4),
+                startAngle = 300f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                style = Stroke(width = strokeW)
+            )
+            // Crossbar
+            drawLine(
+                color = Color(0xFF4285F4),
+                start = Offset(center.x, center.y),
+                end = Offset(center.x + radius, center.y),
+                strokeWidth = strokeW
+            )
+        }
+    }
+}
+
+/**
+ * Universal Downloader Dialog:
+ * - Downloads from TikTok, YouTube, and Google / External Web links
+ * - Saves directly to phone's public storage (/Music/ASDMusic/)
+ * - Toggle Audio (Compressed HQ MP3) vs Video (HD MP4)
+ * - Auto-detects titles, artists, and cover art
  */
 @Composable
 fun AddSongDialog(
@@ -161,7 +263,11 @@ fun AddSongDialog(
     var artistText by remember { mutableStateOf("") }
     var isVideo by remember { mutableStateOf(false) }
 
-    val isTikTokLink = urlText.isBlank() || urlText.contains("tiktok", ignoreCase = true)
+    val clean = urlText.trim()
+    val isYouTube = clean.contains("youtube.com") || clean.contains("youtu.be")
+    val isTikTok = clean.contains("tiktok.com")
+    val isWebOrGoogle = clean.startsWith("http://") || clean.startsWith("https://")
+    val isValidLink = clean.isNotBlank() && (isYouTube || isTikTok || isWebOrGoogle)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -172,16 +278,20 @@ fun AddSongDialog(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                TikTokLogoIcon(size = 34.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TikTokLogoIcon(size = 24.dp)
+                    YouTubeLogoIcon(size = 24.dp)
+                    GoogleWebIcon(size = 24.dp)
+                }
                 Column {
                     Text(
-                        text = "Download TikTok Song",
+                        text = "Download to Device",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "yt-dlp TikTok Engine",
+                        text = "TikTok • YouTube • Google / Web Links",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = PlusBlue
@@ -192,24 +302,28 @@ fun AddSongDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Paste any TikTok video, sound, or music link to download the full song directly to your device library.",
+                    text = "Paste any TikTok, YouTube, or Google/web link. Files are saved directly to your phone's Music storage so they never disappear and play with all apps.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Link Input field with TikTok Logo leading icon
+                // Link Input field with dynamic leading icon
                 OutlinedTextField(
                     value = urlText,
                     onValueChange = { urlText = it },
-                    label = { Text("TikTok Link URL") },
-                    placeholder = { Text("https://vm.tiktok.com/... or tiktok.com/@user/...") },
+                    label = { Text("Song or Video Link") },
+                    placeholder = { Text("TikTok, YouTube, or Web URL") },
                     leadingIcon = {
-                        TikTokLogoIcon(size = 20.dp)
+                        when {
+                            isYouTube -> YouTubeLogoIcon(size = 20.dp)
+                            isTikTok -> TikTokLogoIcon(size = 20.dp)
+                            else -> GoogleWebIcon(size = 20.dp)
+                        }
                     },
                     singleLine = true,
-                    isError = urlText.isNotBlank() && !isTikTokLink,
+                    isError = urlText.isNotBlank() && !isValidLink,
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = PlusBlue,
@@ -220,10 +334,10 @@ fun AddSongDialog(
                         .testTag("download_link_input")
                 )
 
-                if (urlText.isNotBlank() && !isTikTokLink) {
+                if (urlText.isNotBlank() && !isValidLink) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Please enter a valid TikTok song link.",
+                        text = "Please enter a valid TikTok, YouTube, or Web media link.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -231,47 +345,54 @@ fun AddSongDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Quick TikTok Sample Chips
+                // Quick One-Tap Sample Chips for TikTok, YouTube, and Google Web
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
-                        "Viral Pet Sound" to "https://www.tiktok.com/@scout2015/video/6718335390845095173",
-                        "TikTok Sound" to "https://www.tiktok.com/@scout2015/video/6718335390845095173"
-                    ).forEach { (label, sampleUrl) ->
+                        Triple("TikTok", "https://www.tiktok.com/@scout2015/video/6718335390845095173", "tt"),
+                        Triple("YouTube", "https://www.youtube.com/watch?v=kJQP7kiw5Fk", "yt"),
+                        Triple("Web Audio", "https://filesamples.com/samples/audio/mp3/sample3.mp3", "web")
+                    ).forEach { (label, sampleUrl, type) ->
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
+                                .weight(1f)
                                 .clickable { urlText = sampleUrl }
                                 .border(0.5.dp, PlusBlue.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.Center
                             ) {
-                                TikTokLogoIcon(size = 14.dp)
+                                when (type) {
+                                    "tt" -> TikTokLogoIcon(size = 14.dp)
+                                    "yt" -> YouTubeLogoIcon(size = 14.dp)
+                                    else -> GoogleWebIcon(size = 14.dp)
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = label,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Song Title (Optional)
                 OutlinedTextField(
                     value = titleText,
                     onValueChange = { titleText = it },
                     label = { Text("Song Title (Optional)") },
-                    placeholder = { Text("Auto-detect from TikTok") },
+                    placeholder = { Text("Auto-detect from link") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -281,14 +402,14 @@ fun AddSongDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Artist Name (Optional)
                 OutlinedTextField(
                     value = artistText,
                     onValueChange = { artistText = it },
-                    label = { Text("Artist / Creator (Optional)") },
-                    placeholder = { Text("Auto-detect from TikTok") },
+                    label = { Text("Artist / Channel (Optional)") },
+                    placeholder = { Text("Auto-detect from link") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -300,7 +421,7 @@ fun AddSongDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Format switch: Full MP3 Audio or MP4 Video
+                // Format switch: Audio (HQ Compressed MP3) vs Video (HD MP4)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -319,13 +440,13 @@ fun AddSongDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = if (isVideo) "Download Full Video" else "Download Full Audio (MP3)",
+                                text = if (isVideo) "Video (HD MP4)" else "Audio (HQ Compressed MP3)",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = if (isVideo) "Includes video stream" else "HQ TikTok sound track",
+                                text = if (isVideo) "Includes video stream" else "Compressed audio track",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -341,6 +462,34 @@ fun AddSongDialog(
                         )
                     )
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Reassuring Device Storage Banner per user request
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = PlusBlue.copy(alpha = 0.08f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.Download,
+                            contentDescription = null,
+                            tint = PlusBlue,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Saves to Device (/Music/ASDMusic/) — available in all music players.",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -355,14 +504,14 @@ fun AddSongDialog(
                         )
                     }
                 },
-                enabled = urlText.isNotBlank() && isTikTokLink,
+                enabled = isValidLink,
                 colors = ButtonDefaults.buttonColors(containerColor = PlusBlue),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.testTag("confirm_download_button")
             ) {
                 Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Download TikTok Song", fontWeight = FontWeight.Bold)
+                Text(text = "Download to Device", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

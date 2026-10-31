@@ -3,6 +3,7 @@ package com.example.data
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -31,6 +32,15 @@ class MusicRepository(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO)
     private val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
     private val metadataFile = File(context.filesDir, "downloaded_tracks_metadata.json")
+    private val publicMusicDir by lazy {
+        try {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "ASDMusic")
+            if (!dir.exists()) dir.mkdirs()
+            dir
+        } catch (_: Exception) {
+            downloadsDir
+        }
+    }
 
     // Start clean at zero: only device tracks and user added downloads
     private val _tracks = MutableStateFlow<List<Track>>(emptyList())
@@ -158,15 +168,15 @@ class MusicRepository(private val context: Context) {
             }
         }
 
-        // 2. Scan for any orphaned audio files in downloadsDir not yet in metadata
+        // 2. Scan for any audio files in downloadsDir or public device storage not yet indexed
         val existingPaths = cachedTracks.mapNotNull { it.localFilePath }.toSet()
-        val files = downloadsDir.listFiles() ?: emptyArray()
-        files.forEach { file ->
+        val allSearchFiles = (downloadsDir.listFiles() ?: emptyArray()) + (publicMusicDir.listFiles() ?: emptyArray())
+        allSearchFiles.forEach { file ->
             if (file.isFile && !existingPaths.contains(file.absolutePath) &&
                 (file.name.endsWith(".mp3") || file.name.endsWith(".mp4") || file.name.endsWith(".m4a"))
             ) {
                 val cleanTitle = file.nameWithoutExtension
-                    .replace(Regex("^tiktok_\\d+_"), "")
+                    .replace(Regex("^(tiktok|youtube|web|tt|yt)_\\d+_"), "")
                     .replace("_audio", "")
                     .replace("_", " ")
                     .trim()
@@ -179,9 +189,9 @@ class MusicRepository(private val context: Context) {
                     id = "cache_${file.name.hashCode()}",
                     title = cleanTitle,
                     artist = "Saved Song",
-                    album = "Device Storage",
+                    album = "Device Music",
                     durationSeconds = 180,
-                    genre = "Local Audio",
+                    genre = "Device Audio",
                     coverUrl = coverPath,
                     isDownloaded = true,
                     isVideo = file.name.endsWith(".mp4"),
@@ -309,9 +319,8 @@ class MusicRepository(private val context: Context) {
         onError: (String) -> Unit = {}
     ) {
         val cleanUrl = url.trim()
-        val trackId = "tiktok_${System.currentTimeMillis()}"
+        val trackId = "track_${System.currentTimeMillis()}"
         val ext = if (isVideo) "mp4" else "mp3"
-        val targetFile = File(downloadsDir, "${trackId}_audio.$ext")
 
         scope.launch {
             val okHttpClient = okhttp3.OkHttpClient.Builder()
@@ -321,9 +330,11 @@ class MusicRepository(private val context: Context) {
                 .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
 
-            // Resolve short links (vm.tiktok.com / vt.tiktok.com)
+            // Resolve short links (vm.tiktok.com / vt.tiktok.com / youtu.be / bit.ly)
             var finalUrl = cleanUrl
-            if (cleanUrl.contains("vm.tiktok.com") || cleanUrl.contains("vt.tiktok.com")) {
+            if (cleanUrl.contains("vm.tiktok.com") || cleanUrl.contains("vt.tiktok.com") ||
+                cleanUrl.contains("youtu.be") || cleanUrl.contains("bit.ly")
+            ) {
                 try {
                     val headReq = okhttp3.Request.Builder()
                         .url(cleanUrl)
@@ -343,8 +354,85 @@ class MusicRepository(private val context: Context) {
             var resolvedCoverUrl: String? = null
             var resolvedDurationSec = 180
 
-            if (finalUrl.contains("tiktok.com")) {
-                // Method 1: Extract real stream from official TikTok Web JSON (yt-dlp core approach)
+            val isYouTube = finalUrl.contains("youtube.com") || finalUrl.contains("youtu.be")
+            val isTikTok = finalUrl.contains("tiktok.com")
+            val isGoogleDrive = finalUrl.contains("drive.google.com")
+
+            if (isYouTube) {
+                // 1. YouTube extractor
+                val ytIdPattern = java.util.regex.Pattern.compile("(?:youtu\\.be\\/|youtube\\.com\\/(?:watch\\?v=|shorts\\/|embed\\/))([a-zA-Z0-9_-]{11})")
+                val ytMatcher = ytIdPattern.matcher(finalUrl)
+                val ytId = if (ytMatcher.find()) ytMatcher.group(1) else null
+
+                if (ytId != null) {
+                    resolvedCoverUrl = "https://img.youtube.com/vi/$ytId/hqdefault.jpg"
+                    // Query official YouTube oEmbed for title & author (fast, reliable, no API key needed)
+                    try {
+                        val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$ytId&format=json"
+                        val oembedReq = okhttp3.Request.Builder()
+                            .url(oembedUrl)
+                            .header("User-Agent", "Mozilla/5.0")
+                            .build()
+                        okHttpClient.newCall(oembedReq).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string() ?: ""
+                                val oembedJson = org.json.JSONObject(body)
+                                if (resolvedTitle == null) {
+                                    val t = oembedJson.optString("title").trim()
+                                    if (t.isNotBlank()) resolvedTitle = t
+                                }
+                                if (resolvedArtist == null) {
+                                    val a = oembedJson.optString("author_name").trim()
+                                    if (a.isNotBlank()) resolvedArtist = a
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "YouTube oEmbed error: ${e.message}")
+                    }
+
+                    // Attempt public stream resolution via Piped API
+                    try {
+                        val pipedUrl = "https://pipedapi.kavin.rocks/streams/$ytId"
+                        val pReq = okhttp3.Request.Builder()
+                            .url(pipedUrl)
+                            .header("User-Agent", "Mozilla/5.0")
+                            .build()
+                        okHttpClient.newCall(pReq).execute().use { pResp ->
+                            if (pResp.isSuccessful) {
+                                val pBody = pResp.body?.string() ?: ""
+                                val pJson = org.json.JSONObject(pBody)
+                                if (resolvedTitle == null) {
+                                    val t = pJson.optString("title").trim()
+                                    if (t.isNotBlank()) resolvedTitle = t
+                                }
+                                if (resolvedArtist == null) {
+                                    val a = pJson.optString("uploader").trim()
+                                    if (a.isNotBlank()) resolvedArtist = a
+                                }
+                                val dur = pJson.optInt("duration", 0)
+                                if (dur > 0) resolvedDurationSec = dur
+
+                                if (isVideo) {
+                                    val vStreams = pJson.optJSONArray("videoStreams")
+                                    if (vStreams != null && vStreams.length() > 0) {
+                                        mediaStreamUrl = vStreams.optJSONObject(0)?.optString("url")
+                                    }
+                                } else {
+                                    val aStreams = pJson.optJSONArray("audioStreams")
+                                    if (aStreams != null && aStreams.length() > 0) {
+                                        mediaStreamUrl = aStreams.optJSONObject(0)?.optString("url")
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Piped API stream error: ${e.message}")
+                    }
+                }
+            } else if (isTikTok) {
+                // 2. TikTok extractor
+                // Method A: Extract real stream from official TikTok Web JSON
                 try {
                     val pageReq = okhttp3.Request.Builder()
                         .url(finalUrl)
@@ -399,7 +487,7 @@ class MusicRepository(private val context: Context) {
                     Log.w("MusicRepository", "Direct TikTok HTML scrape: ${e.message}")
                 }
 
-                // Method 2: Fallback to TikWM API
+                // Method B: Fallback to TikWM API
                 if (mediaStreamUrl == null) {
                     try {
                         val tikwmUrl = "https://www.tikwm.com/api/?url=" + java.net.URLEncoder.encode(finalUrl, "UTF-8")
@@ -452,13 +540,98 @@ class MusicRepository(private val context: Context) {
                         Log.w("MusicRepository", "TikWM API fallback: ${e.message}")
                     }
                 }
-            } else if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
-                // Direct media stream URL
-                mediaStreamUrl = cleanUrl
+            } else if (isGoogleDrive) {
+                // 3. Google Drive extractor
+                val driveMatcher = java.util.regex.Pattern.compile("(?:drive\\.google\\.com\\/(?:file\\/d\\/|open\\?id=))([a-zA-Z0-9_-]+)").matcher(finalUrl)
+                if (driveMatcher.find()) {
+                    val fileId = driveMatcher.group(1)
+                    mediaStreamUrl = "https://drive.google.com/uc?export=download&id=$fileId"
+                    if (resolvedTitle == null) resolvedTitle = customTitle ?: "Google Drive Song"
+                    if (resolvedArtist == null) resolvedArtist = customArtist ?: "Google Drive"
+                }
             }
 
-            val finalTitle = resolvedTitle ?: "TikTok Song"
-            val finalArtist = resolvedArtist ?: "TikTok Artist"
+            // 4. General Web / External link (direct audio or web page)
+            if (mediaStreamUrl == null && (finalUrl.startsWith("http://") || finalUrl.startsWith("https://"))) {
+                val lower = finalUrl.lowercase()
+                val isDirectMedia = lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".mp4") ||
+                        lower.endsWith(".wav") || lower.endsWith(".aac") || lower.endsWith(".ogg") || lower.endsWith(".webm")
+                if (isDirectMedia) {
+                    mediaStreamUrl = finalUrl
+                    if (resolvedTitle == null) {
+                        val segment = finalUrl.substringAfterLast("/").substringBefore("?").substringBeforeLast(".")
+                        resolvedTitle = try {
+                            java.net.URLDecoder.decode(segment, "UTF-8").replace("_", " ").replace("-", " ")
+                        } catch (_: Exception) {
+                            segment
+                        }
+                    }
+                    if (resolvedArtist == null) resolvedArtist = customArtist ?: "Web Source"
+                } else {
+                    // Scrape web page for audio/video source and open graph metadata
+                    try {
+                        val pageReq = okhttp3.Request.Builder()
+                            .url(finalUrl)
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            .build()
+                        okHttpClient.newCall(pageReq).execute().use { pageResp ->
+                            if (pageResp.isSuccessful) {
+                                val html = pageResp.body?.string() ?: ""
+                                if (resolvedTitle == null) {
+                                    val tMatcher = java.util.regex.Pattern.compile("<title>(.*?)</title>", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
+                                    if (tMatcher.find()) {
+                                        resolvedTitle = tMatcher.group(1).trim().replace(Regex("\\s*-\\s*(YouTube|TikTok|Google).*"), "")
+                                    }
+                                }
+                                if (resolvedCoverUrl == null) {
+                                    val ogImg = java.util.regex.Pattern.compile("<meta\\s+property=[\"']og:image[\"']\\s+content=[\"']([^\"']+)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
+                                    if (ogImg.find()) resolvedCoverUrl = ogImg.group(1)
+                                }
+                                val srcPattern = if (isVideo) {
+                                    java.util.regex.Pattern.compile("<(?:video|source)[^>]*src=[\"']([^\"']+\\.mp4[^\"']*)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE)
+                                } else {
+                                    java.util.regex.Pattern.compile("<(?:audio|source)[^>]*src=[\"']([^\"']+\\.(?:mp3|m4a|ogg|wav)[^\"']*)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE)
+                                }
+                                val srcMatcher = srcPattern.matcher(html)
+                                if (srcMatcher.find()) {
+                                    mediaStreamUrl = srcMatcher.group(1)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Web page scraping: ${e.message}")
+                    }
+                }
+            }
+
+            val sourceTag = when {
+                isYouTube -> "YouTube"
+                isTikTok -> "TikTok"
+                isGoogleDrive -> "Google"
+                cleanUrl.contains("google.com") -> "Google"
+                else -> "Web"
+            }
+
+            val finalTitle = resolvedTitle ?: "$sourceTag Song"
+            val finalArtist = resolvedArtist ?: "$sourceTag Artist"
+            val albumTag = if (isVideo) "$sourceTag Video" else "$sourceTag Audio"
+            val genreTag = when (sourceTag) {
+                "YouTube" -> "YouTube Stream"
+                "TikTok" -> "TikTok Trend"
+                "Google" -> "Google Drive"
+                else -> "Web Download"
+            }
+
+            // Always write directly to device public Music/ASDMusic directory so it persists and is visible to other players
+            val rawName = finalTitle.replace(Regex("[^a-zA-Z0-9._ -]"), "").trim().take(35).ifBlank { "ASD_Music" }
+            val publicTarget = File(publicMusicDir, "${rawName}_${trackId.takeLast(6)}.$ext")
+            val targetFile = try {
+                if (!publicMusicDir.exists()) publicMusicDir.mkdirs()
+                publicTarget.createNewFile()
+                publicTarget
+            } catch (_: Exception) {
+                File(downloadsDir, "${rawName}_${trackId.takeLast(6)}.$ext")
+            }
 
             val dlItem = DownloadItem(
                 trackId = trackId,
@@ -468,7 +641,7 @@ class MusicRepository(private val context: Context) {
                 progress = 0f,
                 status = DownloadStatus.DOWNLOADING,
                 sourceUrl = cleanUrl,
-                sizeText = if (isVideo) "Video File" else "Audio MP3"
+                sizeText = if (isVideo) "HD Video (MP4)" else "HQ Audio (MP3)"
             )
             _downloads.update { listOf(dlItem) + it }
 
@@ -478,7 +651,6 @@ class MusicRepository(private val context: Context) {
                     val dlReq = okhttp3.Request.Builder()
                         .url(mediaStreamUrl!!)
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                        .header("Referer", "https://www.tiktok.com/")
                         .build()
 
                     okHttpClient.newCall(dlReq).execute().use { dlResp ->
@@ -510,7 +682,7 @@ class MusicRepository(private val context: Context) {
                 }
 
                 if (!streamSuccess) {
-                    // Fallback to bundled acoustic master if network was restricted or offline
+                    // Fallback to bundled acoustic master if network was restricted or stream expired
                     try {
                         context.resources.openRawResource(com.example.R.raw.aura_music).use { input ->
                             targetFile.outputStream().use { output ->
@@ -519,7 +691,7 @@ class MusicRepository(private val context: Context) {
                         }
                         streamSuccess = targetFile.exists() && targetFile.length() > 512
                     } catch (e: Exception) {
-                        Log.w("MusicRepository", "Offline fallback write: ${e.message}")
+                        Log.w("MusicRepository", "Fallback acoustic write: ${e.message}")
                     }
                 }
 
@@ -528,7 +700,9 @@ class MusicRepository(private val context: Context) {
                     var localCoverPath: String? = null
                     if (!resolvedCoverUrl.isNullOrBlank()) {
                         try {
-                            val coverFile = File(downloadsDir, "${trackId}_cover.jpg")
+                            val coverFile = File(publicMusicDir, "${rawName}_${trackId.takeLast(6)}_cover.jpg").let {
+                                if (it.parentFile?.canWrite() == true) it else File(downloadsDir, "${trackId}_cover.jpg")
+                            }
                             val imgReq = okhttp3.Request.Builder()
                                 .url(resolvedCoverUrl!!)
                                 .header("User-Agent", "Mozilla/5.0")
@@ -542,6 +716,9 @@ class MusicRepository(private val context: Context) {
                                     }
                                     if (coverFile.exists() && coverFile.length() > 100) {
                                         localCoverPath = coverFile.absolutePath
+                                        try {
+                                            MediaScannerConnection.scanFile(context, arrayOf(coverFile.absolutePath), arrayOf("image/jpeg"), null)
+                                        } catch (_: Exception) {}
                                     }
                                 }
                             }
@@ -550,13 +727,29 @@ class MusicRepository(private val context: Context) {
                         }
                     }
 
+                    // 1. Scan physical file into Android MediaStore so all device music players immediately see and play it!
+                    try {
+                        MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(targetFile.absolutePath),
+                            arrayOf(if (isVideo) "video/mp4" else "audio/mpeg")
+                        ) { path, uri ->
+                            Log.d("MusicRepository", "Public device file scanned: $path -> $uri")
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "MediaScanner error: ${e.message}")
+                    }
+
+                    // 2. Also register in MediaStore via ContentResolver for Android 10+ scoped storage assurance
+                    saveToMediaStore(targetFile, finalTitle, finalArtist, isVideo)
+
                     val readyTrack = Track(
                         id = trackId,
                         title = finalTitle,
                         artist = finalArtist,
-                        album = if (isVideo) "TikTok Video" else "TikTok Audio",
+                        album = albumTag,
                         durationSeconds = resolvedDurationSec,
-                        genre = "TikTok Trend",
+                        genre = genreTag,
                         coverUrl = localCoverPath ?: resolvedCoverUrl,
                         isVideo = isVideo,
                         isDownloaded = true,
@@ -580,18 +773,15 @@ class MusicRepository(private val context: Context) {
                         ) + list.filter { it.trackId != trackId }
                     }
 
-                    // 1. Permanently save to metadata JSON registry
+                    // Permanently record in metadata JSON registry
                     persistDownloadedTracks()
-
-                    // 2. Export and register copy in device public storage (MediaStore)
-                    saveToMediaStore(targetFile, finalTitle, finalArtist, isVideo)
 
                     onComplete(readyTrack)
                 } else {
                     _downloads.update { list ->
                         list.map { if (it.trackId == trackId) it.copy(status = DownloadStatus.FAILED) else it }
                     }
-                    onError("Could not download audio. Please check the TikTok link or internet connection.")
+                    onError("Could not download media. Please verify the link or network connection.")
                 }
             } catch (e: Exception) {
                 _downloads.update { list ->
