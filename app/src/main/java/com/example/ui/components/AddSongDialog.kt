@@ -16,14 +16,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -33,6 +43,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,11 +55,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.LinkDetector
+import com.example.data.LinkSource
 import com.example.ui.theme.PlusBlue
 import com.example.ui.theme.PlusCyan
 import com.example.ui.theme.PlusViolet
@@ -247,27 +261,38 @@ fun GoogleWebIcon(
 }
 
 /**
- * Universal Downloader Dialog:
- * - Downloads from TikTok, YouTube, and Google / External Web links
- * - Saves directly to phone's public storage (/Music/ASDMusic/)
- * - Toggle Audio (Compressed HQ MP3) vs Video (HD MP4)
- * - Auto-detects titles, artists, and cover art
+ * Universal Auto-Detect Downloader Dialog:
+ * - Zero manual platform selection: automatically recognizes YouTube, TikTok, Google, or any Web link
+ * - Auto-inspects clipboard on open and dynamically displays the recognized app's logo
+ * - Toggle Audio (Compressed HQ) vs Video (HD MP4)
+ * - Saves directly to phone's public Music storage (/Music/ASDMusic/)
  */
 @Composable
 fun AddSongDialog(
     onDismiss: () -> Unit,
     onDownloadAndPlay: (url: String, title: String?, artist: String?, isVideo: Boolean) -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
     var urlText by remember { mutableStateOf("") }
     var titleText by remember { mutableStateOf("") }
     var artistText by remember { mutableStateOf("") }
     var isVideo by remember { mutableStateOf(false) }
 
-    val clean = urlText.trim()
-    val isYouTube = clean.contains("youtube.com") || clean.contains("youtu.be")
-    val isTikTok = clean.contains("tiktok.com")
-    val isWebOrGoogle = clean.startsWith("http://") || clean.startsWith("https://")
-    val isValidLink = clean.isNotBlank() && (isYouTube || isTikTok || isWebOrGoogle)
+    // Automatically recognize copied link from clipboard if available (no selection needed)
+    LaunchedEffect(Unit) {
+        val clip = clipboardManager.getText()?.text?.trim() ?: ""
+        if (clip.isNotBlank() && LinkDetector.isValidMediaInput(clip)) {
+            urlText = clip
+        }
+    }
+
+    val isValidLink = remember(urlText) { LinkDetector.isValidMediaInput(urlText) }
+    val detectedSource = remember(urlText, isValidLink) {
+        if (isValidLink) LinkDetector.detectSource(urlText) else null
+    }
+    val isDriveLink = remember(urlText) {
+        LinkDetector.extractGoogleDriveFileId(LinkDetector.normalizeUrl(urlText)) != null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -276,12 +301,29 @@ fun AddSongDialog(
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TikTokLogoIcon(size = 24.dp)
-                    YouTubeLogoIcon(size = 24.dp)
-                    GoogleWebIcon(size = 24.dp)
+                // Dynamically displays the recognized app's logo, or clean download badge before a link is entered
+                when (detectedSource) {
+                    LinkSource.YOUTUBE -> YouTubeLogoIcon(size = 36.dp)
+                    LinkSource.TIKTOK -> TikTokLogoIcon(size = 36.dp)
+                    LinkSource.GOOGLE, LinkSource.WEB -> GoogleWebIcon(size = 36.dp)
+                    null -> {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(PlusBlue.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Auto Download",
+                                tint = PlusBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
                 Column {
                     Text(
@@ -291,7 +333,13 @@ fun AddSongDialog(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "TikTok • YouTube • Google / Web Links",
+                        text = when (detectedSource) {
+                            LinkSource.YOUTUBE -> "YouTube link recognized automatically"
+                            LinkSource.TIKTOK -> "TikTok link recognized automatically"
+                            LinkSource.GOOGLE -> if (isDriveLink) "Google Drive link recognized" else "Google link recognized automatically"
+                            LinkSource.WEB -> "Web media link recognized"
+                            null -> "Auto-recognizes YouTube, TikTok & Google"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = PlusBlue
@@ -302,24 +350,55 @@ fun AddSongDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Paste any TikTok, YouTube, or Google/web link. Files are saved directly to your phone's Music storage so they never disappear and play with all apps.",
+                    text = "Paste any link — the app automatically recognizes it, displays its logo, and downloads directly to your phone's Music folder.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Link Input field with dynamic leading icon
+                // Link Input field with dynamic recognized app logo & quick Paste/Clear button
                 OutlinedTextField(
                     value = urlText,
                     onValueChange = { urlText = it },
-                    label = { Text("Song or Video Link") },
-                    placeholder = { Text("TikTok, YouTube, or Web URL") },
+                    label = { Text("Paste Link") },
+                    placeholder = { Text("YouTube, TikTok, Google, or Web URL") },
                     leadingIcon = {
-                        when {
-                            isYouTube -> YouTubeLogoIcon(size = 20.dp)
-                            isTikTok -> TikTokLogoIcon(size = 20.dp)
-                            else -> GoogleWebIcon(size = 20.dp)
+                        when (detectedSource) {
+                            LinkSource.YOUTUBE -> YouTubeLogoIcon(size = 22.dp)
+                            LinkSource.TIKTOK -> TikTokLogoIcon(size = 22.dp)
+                            LinkSource.GOOGLE, LinkSource.WEB -> GoogleWebIcon(size = 22.dp)
+                            null -> Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = "Link",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    },
+                    trailingIcon = {
+                        if (urlText.isNotEmpty()) {
+                            IconButton(onClick = { urlText = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear Link",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        } else {
+                            IconButton(onClick = {
+                                clipboardManager.getText()?.text?.trim()?.let { clip ->
+                                    if (clip.isNotBlank()) urlText = clip
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentPaste,
+                                    contentDescription = "Paste Link",
+                                    tint = PlusBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     },
                     singleLine = true,
@@ -337,48 +416,67 @@ fun AddSongDialog(
                 if (urlText.isNotBlank() && !isValidLink) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Please enter a valid TikTok, YouTube, or Web media link.",
+                        text = "Please paste a valid YouTube, TikTok, Google, or Web link.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Quick One-Tap Sample Chips for TikTok, YouTube, and Google Web
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Recognized App Logo Badge (appears automatically when a link is recognized)
+                AnimatedVisibility(
+                    visible = detectedSource != null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
                 ) {
-                    listOf(
-                        Triple("TikTok", "https://www.tiktok.com/@scout2015/video/6718335390845095173", "tt"),
-                        Triple("YouTube", "https://www.youtube.com/watch?v=kJQP7kiw5Fk", "yt"),
-                        Triple("Web Audio", "https://filesamples.com/samples/audio/mp3/sample3.mp3", "web")
-                    ).forEach { (label, sampleUrl, type) ->
+                    detectedSource?.let { src ->
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(12.dp),
+                            color = PlusBlue.copy(alpha = 0.10f),
                             modifier = Modifier
-                                .weight(1f)
-                                .clickable { urlText = sampleUrl }
-                                .border(0.5.dp, PlusBlue.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                                .fillMaxWidth()
+                                .padding(top = 10.dp)
+                                .border(1.dp, PlusBlue.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                                .testTag("recognized_source_badge")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                when (type) {
-                                    "tt" -> TikTokLogoIcon(size = 14.dp)
-                                    "yt" -> YouTubeLogoIcon(size = 14.dp)
-                                    else -> GoogleWebIcon(size = 14.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    when (src) {
+                                        LinkSource.YOUTUBE -> YouTubeLogoIcon(size = 26.dp)
+                                        LinkSource.TIKTOK -> TikTokLogoIcon(size = 26.dp)
+                                        LinkSource.GOOGLE, LinkSource.WEB -> GoogleWebIcon(size = 26.dp)
+                                    }
+                                    Column {
+                                        Text(
+                                            text = when (src) {
+                                                LinkSource.YOUTUBE -> "YouTube App"
+                                                LinkSource.TIKTOK -> "TikTok App"
+                                                LinkSource.GOOGLE -> if (isDriveLink) "Google Drive" else "Google Search / Web"
+                                                LinkSource.WEB -> "Web Media Source"
+                                            },
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Detected automatically • Ready to download",
+                                            fontSize = 10.sp,
+                                            color = PlusBlue,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = label,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Detected",
+                                    tint = PlusBlue,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -421,7 +519,7 @@ fun AddSongDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Format switch: Audio (HQ Compressed MP3) vs Video (HD MP4)
+                // Format switch: Audio (HQ Compressed) vs Video (HD MP4)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -440,13 +538,13 @@ fun AddSongDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = if (isVideo) "Video (HD MP4)" else "Audio (HQ Compressed MP3)",
+                                text = if (isVideo) "Video (HD MP4)" else "Audio (HQ Compressed)",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = if (isVideo) "Includes video stream" else "Compressed audio track",
+                                text = if (isVideo) "Includes video stream" else "Compressed high-quality audio",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -465,7 +563,7 @@ fun AddSongDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Reassuring Device Storage Banner per user request
+                // Reassuring Device Storage Banner
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = PlusBlue.copy(alpha = 0.08f),
@@ -477,13 +575,13 @@ fun AddSongDialog(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Download,
+                            imageVector = Icons.Default.Download,
                             contentDescription = null,
                             tint = PlusBlue,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Saves to Device (/Music/ASDMusic/) — available in all music players.",
+                            text = "Saves directly to Device (/Music/ASDMusic/) — plays in all apps.",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
@@ -495,9 +593,9 @@ fun AddSongDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (urlText.isNotBlank()) {
+                    if (isValidLink) {
                         onDownloadAndPlay(
-                            urlText.trim(),
+                            LinkDetector.normalizeUrl(urlText),
                             titleText.ifBlank { null },
                             artistText.ifBlank { null },
                             isVideo
@@ -511,7 +609,7 @@ fun AddSongDialog(
             ) {
                 Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Download to Device", fontWeight = FontWeight.Bold)
+                Text(text = "Download", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

@@ -23,9 +23,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.URI
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.util.regex.Pattern
 
 class MusicRepository(private val context: Context) {
 
@@ -287,7 +293,13 @@ class MusicRepository(private val context: Context) {
                 if (deviceTracks.isNotEmpty()) {
                     _tracks.update { existing ->
                         val existingIds = existing.map { t -> t.id }.toSet()
-                        existing + deviceTracks.filter { t -> !existingIds.contains(t.id) }
+                        val existingPaths = existing.mapNotNull { t -> t.localFilePath }.toSet()
+                        val existingTitles = existing.map { t -> t.title.lowercase().trim() }.toSet()
+                        existing + deviceTracks.filter { t ->
+                            !existingIds.contains(t.id) &&
+                                !existingPaths.contains(t.localFilePath) &&
+                                !existingTitles.contains(t.title.lowercase().trim())
+                        }
                     }
                     _userPlaylists.update { playlists ->
                         playlists.map { p ->
@@ -310,6 +322,21 @@ class MusicRepository(private val context: Context) {
      * Downloads song/video from a real TikTok link or direct media stream
      * and saves it directly to local device storage.
      */
+    private data class ResolvedMedia(
+        val streamUrl: String? = null,
+        val title: String? = null,
+        val artist: String? = null,
+        val coverUrl: String? = null,
+        val durationSeconds: Int = 180,
+        val preferredExt: String? = null,
+        val mimeType: String? = null
+    )
+
+    /**
+     * Automatically detects link source (YouTube, TikTok, Google, or external Web URL),
+     * extracts genuine audio/video stream + cover + metadata, downloads it to device storage,
+     * and publishes it via MediaStore so all device music players can play it.
+     */
     fun addAndDownloadFromLink(
         url: String,
         customTitle: String? = null,
@@ -318,320 +345,70 @@ class MusicRepository(private val context: Context) {
         onComplete: (Track) -> Unit,
         onError: (String) -> Unit = {}
     ) {
-        val cleanUrl = url.trim()
+        val cleanUrl = LinkDetector.normalizeUrl(url)
         val trackId = "track_${System.currentTimeMillis()}"
-        val ext = if (isVideo) "mp4" else "mp3"
 
         scope.launch {
             val okHttpClient = okhttp3.OkHttpClient.Builder()
                 .followRedirects(true)
                 .followSslRedirects(true)
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(18, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
 
-            // Resolve short links (vm.tiktok.com / vt.tiktok.com / youtu.be / bit.ly)
-            var finalUrl = cleanUrl
-            if (cleanUrl.contains("vm.tiktok.com") || cleanUrl.contains("vt.tiktok.com") ||
-                cleanUrl.contains("youtu.be") || cleanUrl.contains("bit.ly")
+            // Step 1: Unwrap Google redirects and resolve short links
+            var finalUrl = LinkDetector.unwrapGoogleUrl(cleanUrl)
+            if (finalUrl.contains("vm.tiktok.com") || finalUrl.contains("vt.tiktok.com") ||
+                finalUrl.contains("youtu.be") || finalUrl.contains("bit.ly") ||
+                finalUrl.contains("g.co") || finalUrl.contains("goo.gl") ||
+                finalUrl.contains("share.google")
             ) {
                 try {
                     val headReq = okhttp3.Request.Builder()
-                        .url(cleanUrl)
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .url(finalUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                         .build()
                     okHttpClient.newCall(headReq).execute().use { resp ->
-                        finalUrl = resp.request.url.toString()
+                        val resolved = resp.request.url.toString()
+                        finalUrl = LinkDetector.unwrapGoogleUrl(resolved)
                     }
                 } catch (e: Exception) {
                     Log.w("MusicRepository", "Redirect resolution: ${e.message}")
                 }
             }
 
-            var mediaStreamUrl: String? = null
-            var resolvedTitle: String? = customTitle?.trim()?.ifBlank { null }
-            var resolvedArtist: String? = customArtist?.trim()?.ifBlank { null }
-            var resolvedCoverUrl: String? = null
-            var resolvedDurationSec = 180
+            var resolved = ResolvedMedia()
+            var detectedSource = LinkDetector.detectSource(finalUrl)
 
-            val isYouTube = finalUrl.contains("youtube.com") || finalUrl.contains("youtu.be")
-            val isTikTok = finalUrl.contains("tiktok.com")
-            val isGoogleDrive = finalUrl.contains("drive.google.com")
-
-            if (isYouTube) {
-                // 1. YouTube extractor
-                val ytIdPattern = java.util.regex.Pattern.compile("(?:youtu\\.be\\/|youtube\\.com\\/(?:watch\\?v=|shorts\\/|embed\\/))([a-zA-Z0-9_-]{11})")
-                val ytMatcher = ytIdPattern.matcher(finalUrl)
-                val ytId = if (ytMatcher.find()) ytMatcher.group(1) else null
-
-                if (ytId != null) {
-                    resolvedCoverUrl = "https://img.youtube.com/vi/$ytId/hqdefault.jpg"
-                    // Query official YouTube oEmbed for title & author (fast, reliable, no API key needed)
-                    try {
-                        val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$ytId&format=json"
-                        val oembedReq = okhttp3.Request.Builder()
-                            .url(oembedUrl)
-                            .header("User-Agent", "Mozilla/5.0")
-                            .build()
-                        okHttpClient.newCall(oembedReq).execute().use { resp ->
-                            if (resp.isSuccessful) {
-                                val body = resp.body?.string() ?: ""
-                                val oembedJson = org.json.JSONObject(body)
-                                if (resolvedTitle == null) {
-                                    val t = oembedJson.optString("title").trim()
-                                    if (t.isNotBlank()) resolvedTitle = t
-                                }
-                                if (resolvedArtist == null) {
-                                    val a = oembedJson.optString("author_name").trim()
-                                    if (a.isNotBlank()) resolvedArtist = a
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w("MusicRepository", "YouTube oEmbed error: ${e.message}")
-                    }
-
-                    // Attempt public stream resolution via Piped API
-                    try {
-                        val pipedUrl = "https://pipedapi.kavin.rocks/streams/$ytId"
-                        val pReq = okhttp3.Request.Builder()
-                            .url(pipedUrl)
-                            .header("User-Agent", "Mozilla/5.0")
-                            .build()
-                        okHttpClient.newCall(pReq).execute().use { pResp ->
-                            if (pResp.isSuccessful) {
-                                val pBody = pResp.body?.string() ?: ""
-                                val pJson = org.json.JSONObject(pBody)
-                                if (resolvedTitle == null) {
-                                    val t = pJson.optString("title").trim()
-                                    if (t.isNotBlank()) resolvedTitle = t
-                                }
-                                if (resolvedArtist == null) {
-                                    val a = pJson.optString("uploader").trim()
-                                    if (a.isNotBlank()) resolvedArtist = a
-                                }
-                                val dur = pJson.optInt("duration", 0)
-                                if (dur > 0) resolvedDurationSec = dur
-
-                                if (isVideo) {
-                                    val vStreams = pJson.optJSONArray("videoStreams")
-                                    if (vStreams != null && vStreams.length() > 0) {
-                                        mediaStreamUrl = vStreams.optJSONObject(0)?.optString("url")
-                                    }
-                                } else {
-                                    val aStreams = pJson.optJSONArray("audioStreams")
-                                    if (aStreams != null && aStreams.length() > 0) {
-                                        mediaStreamUrl = aStreams.optJSONObject(0)?.optString("url")
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w("MusicRepository", "Piped API stream error: ${e.message}")
+            // Step 2: Run dedicated extractor pipeline per detected source
+            when (detectedSource) {
+                LinkSource.YOUTUBE -> {
+                    val ytId = LinkDetector.extractYouTubeVideoId(finalUrl)
+                    if (ytId != null) {
+                        resolved = resolveYouTubeStream(okHttpClient, ytId, isVideo)
                     }
                 }
-            } else if (isTikTok) {
-                // 2. TikTok extractor
-                // Method A: Extract real stream from official TikTok Web JSON
-                try {
-                    val pageReq = okhttp3.Request.Builder()
-                        .url(finalUrl)
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                        .build()
-                    okHttpClient.newCall(pageReq).execute().use { pageResp ->
-                        if (pageResp.isSuccessful) {
-                            val html = pageResp.body?.string() ?: ""
-                            val scriptMatcher = java.util.regex.Pattern.compile("<script id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"[^>]*>(.*?)</script>").matcher(html)
-                            if (scriptMatcher.find()) {
-                                val jsonStr = scriptMatcher.group(1)
-                                val rootJson = org.json.JSONObject(jsonStr)
-                                val defaultScope = rootJson.optJSONObject("__DEFAULT_SCOPE__")
-                                val videoDetail = defaultScope?.optJSONObject("webapp.video-detail")
-                                val itemStruct = videoDetail?.optJSONObject("itemInfo")?.optJSONObject("itemStruct")
-                                if (itemStruct != null) {
-                                    if (resolvedTitle == null) {
-                                        val desc = itemStruct.optString("desc").trim()
-                                        if (desc.isNotBlank()) resolvedTitle = desc
-                                    }
-                                    val musicObj = itemStruct.optJSONObject("music")
-                                    if (musicObj != null) {
-                                        if (resolvedTitle == null) {
-                                            val mTitle = musicObj.optString("title").trim()
-                                            if (mTitle.isNotBlank()) resolvedTitle = mTitle
-                                        }
-                                        if (resolvedArtist == null) {
-                                            val mAuthor = musicObj.optString("authorName").trim()
-                                            if (mAuthor.isNotBlank()) resolvedArtist = mAuthor
-                                        }
-                                        val cover = musicObj.optString("coverLarge").ifBlank { musicObj.optString("coverThumb") }
-                                        if (cover.isNotBlank()) resolvedCoverUrl = cover
-                                        val dur = musicObj.optInt("duration", 0)
-                                        if (dur > 0) resolvedDurationSec = dur
-                                        if (!isVideo) {
-                                            mediaStreamUrl = musicObj.optString("playUrl").ifBlank { null }
-                                        }
-                                    }
-                                    if (isVideo || mediaStreamUrl == null) {
-                                        val videoObj = itemStruct.optJSONObject("video")
-                                        val vPlay = videoObj?.optString("playAddr")?.ifBlank { null }
-                                        if (vPlay != null) {
-                                            if (isVideo) mediaStreamUrl = vPlay
-                                            else if (mediaStreamUrl == null) mediaStreamUrl = vPlay
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("MusicRepository", "Direct TikTok HTML scrape: ${e.message}")
+                LinkSource.TIKTOK -> {
+                    resolved = resolveTikTokStream(okHttpClient, finalUrl, isVideo)
                 }
-
-                // Method B: Fallback to TikWM API
-                if (mediaStreamUrl == null) {
-                    try {
-                        val tikwmUrl = "https://www.tikwm.com/api/?url=" + java.net.URLEncoder.encode(finalUrl, "UTF-8")
-                        val apiReq = okhttp3.Request.Builder()
-                            .url(tikwmUrl)
-                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                            .build()
-                        okHttpClient.newCall(apiReq).execute().use { apiResp ->
-                            if (apiResp.isSuccessful) {
-                                val body = apiResp.body?.string() ?: ""
-                                val json = org.json.JSONObject(body)
-                                if (json.optInt("code") == 0) {
-                                    val data = json.optJSONObject("data")
-                                    if (data != null) {
-                                        if (resolvedTitle == null) {
-                                            val t = data.optString("title").trim()
-                                            if (t.isNotBlank()) resolvedTitle = t
-                                        }
-                                        val musicInfo = data.optJSONObject("music_info")
-                                        if (musicInfo != null) {
-                                            if (resolvedTitle == null) {
-                                                val mt = musicInfo.optString("title").trim()
-                                                if (mt.isNotBlank()) resolvedTitle = mt
-                                            }
-                                            if (resolvedArtist == null) {
-                                                val ma = musicInfo.optString("author").trim()
-                                                if (ma.isNotBlank()) resolvedArtist = ma
-                                            }
-                                            val dur = musicInfo.optInt("duration", 0)
-                                            if (dur > 0) resolvedDurationSec = dur
-                                        }
-                                        if (resolvedArtist == null) {
-                                            val authorObj = data.optJSONObject("author")
-                                            val nick = authorObj?.optString("nickname")?.trim() ?: ""
-                                            if (nick.isNotBlank()) resolvedArtist = nick
-                                        }
-                                        if (resolvedCoverUrl == null) {
-                                            resolvedCoverUrl = data.optString("cover").ifBlank { null }
-                                        }
-                                        mediaStreamUrl = if (isVideo) {
-                                            data.optString("play").ifBlank { null }
-                                        } else {
-                                            data.optString("music").ifBlank { data.optString("play").ifBlank { null } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w("MusicRepository", "TikWM API fallback: ${e.message}")
-                    }
-                }
-            } else if (isGoogleDrive) {
-                // 3. Google Drive extractor
-                val driveMatcher = java.util.regex.Pattern.compile("(?:drive\\.google\\.com\\/(?:file\\/d\\/|open\\?id=))([a-zA-Z0-9_-]+)").matcher(finalUrl)
-                if (driveMatcher.find()) {
-                    val fileId = driveMatcher.group(1)
-                    mediaStreamUrl = "https://drive.google.com/uc?export=download&id=$fileId"
-                    if (resolvedTitle == null) resolvedTitle = customTitle ?: "Google Drive Song"
-                    if (resolvedArtist == null) resolvedArtist = customArtist ?: "Google Drive"
-                }
-            }
-
-            // 4. General Web / External link (direct audio or web page)
-            if (mediaStreamUrl == null && (finalUrl.startsWith("http://") || finalUrl.startsWith("https://"))) {
-                val lower = finalUrl.lowercase()
-                val isDirectMedia = lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".mp4") ||
-                        lower.endsWith(".wav") || lower.endsWith(".aac") || lower.endsWith(".ogg") || lower.endsWith(".webm")
-                if (isDirectMedia) {
-                    mediaStreamUrl = finalUrl
-                    if (resolvedTitle == null) {
-                        val segment = finalUrl.substringAfterLast("/").substringBefore("?").substringBeforeLast(".")
-                        resolvedTitle = try {
-                            java.net.URLDecoder.decode(segment, "UTF-8").replace("_", " ").replace("-", " ")
-                        } catch (_: Exception) {
-                            segment
-                        }
-                    }
-                    if (resolvedArtist == null) resolvedArtist = customArtist ?: "Web Source"
-                } else {
-                    // Scrape web page for audio/video source and open graph metadata
-                    try {
-                        val pageReq = okhttp3.Request.Builder()
-                            .url(finalUrl)
-                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                            .build()
-                        okHttpClient.newCall(pageReq).execute().use { pageResp ->
-                            if (pageResp.isSuccessful) {
-                                val html = pageResp.body?.string() ?: ""
-                                if (resolvedTitle == null) {
-                                    val tMatcher = java.util.regex.Pattern.compile("<title>(.*?)</title>", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
-                                    if (tMatcher.find()) {
-                                        resolvedTitle = tMatcher.group(1).trim().replace(Regex("\\s*-\\s*(YouTube|TikTok|Google).*"), "")
-                                    }
-                                }
-                                if (resolvedCoverUrl == null) {
-                                    val ogImg = java.util.regex.Pattern.compile("<meta\\s+property=[\"']og:image[\"']\\s+content=[\"']([^\"']+)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
-                                    if (ogImg.find()) resolvedCoverUrl = ogImg.group(1)
-                                }
-                                val srcPattern = if (isVideo) {
-                                    java.util.regex.Pattern.compile("<(?:video|source)[^>]*src=[\"']([^\"']+\\.mp4[^\"']*)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE)
-                                } else {
-                                    java.util.regex.Pattern.compile("<(?:audio|source)[^>]*src=[\"']([^\"']+\\.(?:mp3|m4a|ogg|wav)[^\"']*)[\"']", java.util.regex.Pattern.CASE_INSENSITIVE)
-                                }
-                                val srcMatcher = srcPattern.matcher(html)
-                                if (srcMatcher.find()) {
-                                    mediaStreamUrl = srcMatcher.group(1)
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w("MusicRepository", "Web page scraping: ${e.message}")
+                LinkSource.GOOGLE, LinkSource.WEB -> {
+                    val webResult = resolveGoogleOrWebStream(okHttpClient, finalUrl, isVideo)
+                    resolved = webResult.first
+                    if (webResult.second != null) {
+                        detectedSource = webResult.second!!
                     }
                 }
             }
 
-            val sourceTag = when {
-                isYouTube -> "YouTube"
-                isTikTok -> "TikTok"
-                isGoogleDrive -> "Google"
-                cleanUrl.contains("google.com") -> "Google"
-                else -> "Web"
-            }
-
-            val finalTitle = resolvedTitle ?: "$sourceTag Song"
-            val finalArtist = resolvedArtist ?: "$sourceTag Artist"
-            val albumTag = if (isVideo) "$sourceTag Video" else "$sourceTag Audio"
-            val genreTag = when (sourceTag) {
-                "YouTube" -> "YouTube Stream"
-                "TikTok" -> "TikTok Trend"
-                "Google" -> "Google Drive"
-                else -> "Web Download"
-            }
-
-            // Always write directly to device public Music/ASDMusic directory so it persists and is visible to other players
-            val rawName = finalTitle.replace(Regex("[^a-zA-Z0-9._ -]"), "").trim().take(35).ifBlank { "ASD_Music" }
-            val publicTarget = File(publicMusicDir, "${rawName}_${trackId.takeLast(6)}.$ext")
-            val targetFile = try {
-                if (!publicMusicDir.exists()) publicMusicDir.mkdirs()
-                publicTarget.createNewFile()
-                publicTarget
-            } catch (_: Exception) {
-                File(downloadsDir, "${rawName}_${trackId.takeLast(6)}.$ext")
-            }
+            val finalTitle = customTitle?.trim()?.ifBlank { null }
+                ?: resolved.title?.trim()?.ifBlank { null }
+                ?: "${detectedSource.displayName} Song"
+            val finalArtist = customArtist?.trim()?.ifBlank { null }
+                ?: resolved.artist?.trim()?.ifBlank { null }
+                ?: "${detectedSource.displayName} Artist"
+            val resolvedCoverUrl = resolved.coverUrl
+            val resolvedDurationSec = resolved.durationSeconds.coerceAtLeast(10)
+            val mediaStreamUrl = resolved.streamUrl
 
             val dlItem = DownloadItem(
                 trackId = trackId,
@@ -641,26 +418,46 @@ class MusicRepository(private val context: Context) {
                 progress = 0f,
                 status = DownloadStatus.DOWNLOADING,
                 sourceUrl = cleanUrl,
-                sizeText = if (isVideo) "HD Video (MP4)" else "HQ Audio (MP3)"
+                sizeText = if (isVideo) "HD Video (MP4)" else "HQ Audio"
             )
             _downloads.update { listOf(dlItem) + it }
+
+            val rawName = finalTitle.replace(Regex("[^a-zA-Z0-9._ -]"), "").trim().take(35).ifBlank { "ASD_Music" }
+            var finalExt = resolved.preferredExt ?: if (isVideo) "mp4" else "mp3"
+            var finalMime = resolved.mimeType ?: if (isVideo) "video/mp4" else "audio/mpeg"
+            var targetFile = createTargetFile(rawName, trackId, finalExt)
 
             try {
                 var streamSuccess = false
                 if (!mediaStreamUrl.isNullOrBlank()) {
-                    val dlReq = okhttp3.Request.Builder()
-                        .url(mediaStreamUrl!!)
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                        .build()
+                    val reqBuilder = okhttp3.Request.Builder()
+                        .url(mediaStreamUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    if (detectedSource == LinkSource.TIKTOK) {
+                        reqBuilder.header("Referer", "https://www.tiktok.com/")
+                    }
 
-                    okHttpClient.newCall(dlReq).execute().use { dlResp ->
-                        if (dlResp.isSuccessful) {
+                    okHttpClient.newCall(reqBuilder.build()).execute().use { dlResp ->
+                        val respContentType = dlResp.header("Content-Type")?.lowercase() ?: ""
+                        // Guard: never save an HTML webpage as an MP3/MP4!
+                        if (dlResp.isSuccessful && !respContentType.contains("text/html")) {
+                            // Align extension & MIME type with actual audio/video container
+                            val (mappedExt, mappedMime) = mapExtensionAndMime(respContentType, mediaStreamUrl, isVideo, finalExt)
+                            if (mappedExt != finalExt) {
+                                if (targetFile.exists()) targetFile.delete()
+                                finalExt = mappedExt
+                                finalMime = mappedMime
+                                targetFile = createTargetFile(rawName, trackId, finalExt)
+                            } else {
+                                finalMime = mappedMime
+                            }
+
                             val body = dlResp.body
                             if (body != null) {
                                 val totalLength = body.contentLength()
                                 body.byteStream().use { input ->
                                     targetFile.outputStream().use { output ->
-                                        val buffer = ByteArray(8192)
+                                        val buffer = ByteArray(16384)
                                         var bytesRead: Int
                                         var totalRead = 0L
                                         while (input.read(buffer).also { bytesRead = it } != -1) {
@@ -675,23 +472,11 @@ class MusicRepository(private val context: Context) {
                                         }
                                     }
                                 }
-                                streamSuccess = targetFile.exists() && targetFile.length() > 512
+                                streamSuccess = targetFile.exists() && targetFile.length() > 1024
                             }
+                        } else if (respContentType.contains("text/html")) {
+                            Log.w("MusicRepository", "Stream URL returned HTML instead of media: $mediaStreamUrl")
                         }
-                    }
-                }
-
-                if (!streamSuccess) {
-                    // Fallback to bundled acoustic master if network was restricted or stream expired
-                    try {
-                        context.resources.openRawResource(com.example.R.raw.aura_music).use { input ->
-                            targetFile.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        streamSuccess = targetFile.exists() && targetFile.length() > 512
-                    } catch (e: Exception) {
-                        Log.w("MusicRepository", "Fallback acoustic write: ${e.message}")
                     }
                 }
 
@@ -704,7 +489,7 @@ class MusicRepository(private val context: Context) {
                                 if (it.parentFile?.canWrite() == true) it else File(downloadsDir, "${trackId}_cover.jpg")
                             }
                             val imgReq = okhttp3.Request.Builder()
-                                .url(resolvedCoverUrl!!)
+                                .url(resolvedCoverUrl)
                                 .header("User-Agent", "Mozilla/5.0")
                                 .build()
                             okHttpClient.newCall(imgReq).execute().use { imgResp ->
@@ -727,12 +512,12 @@ class MusicRepository(private val context: Context) {
                         }
                     }
 
-                    // 1. Scan physical file into Android MediaStore so all device music players immediately see and play it!
+                    // 1. Scan physical file into Android MediaStore so all device music players immediately see it
                     try {
                         MediaScannerConnection.scanFile(
                             context,
                             arrayOf(targetFile.absolutePath),
-                            arrayOf(if (isVideo) "video/mp4" else "audio/mpeg")
+                            arrayOf(finalMime)
                         ) { path, uri ->
                             Log.d("MusicRepository", "Public device file scanned: $path -> $uri")
                         }
@@ -740,8 +525,16 @@ class MusicRepository(private val context: Context) {
                         Log.w("MusicRepository", "MediaScanner error: ${e.message}")
                     }
 
-                    // 2. Also register in MediaStore via ContentResolver for Android 10+ scoped storage assurance
-                    saveToMediaStore(targetFile, finalTitle, finalArtist, isVideo)
+                    // 2. Also export via ContentResolver MediaStore for Android 10+ Scoped Storage assurance
+                    saveToMediaStore(targetFile, finalTitle, finalArtist, isVideo, finalExt, finalMime)
+
+                    val albumTag = if (isVideo) "${detectedSource.displayName} Video" else "${detectedSource.displayName} Audio"
+                    val genreTag = when (detectedSource) {
+                        LinkSource.YOUTUBE -> "YouTube Stream"
+                        LinkSource.TIKTOK -> "TikTok Trend"
+                        LinkSource.GOOGLE -> "Google Drive"
+                        LinkSource.WEB -> "Web Download"
+                    }
 
                     val readyTrack = Track(
                         id = trackId,
@@ -773,22 +566,794 @@ class MusicRepository(private val context: Context) {
                         ) + list.filter { it.trackId != trackId }
                     }
 
-                    // Permanently record in metadata JSON registry
                     persistDownloadedTracks()
-
                     onComplete(readyTrack)
                 } else {
+                    if (targetFile.exists()) targetFile.delete()
                     _downloads.update { list ->
                         list.map { if (it.trackId == trackId) it.copy(status = DownloadStatus.FAILED) else it }
                     }
-                    onError("Could not download media. Please verify the link or network connection.")
+                    onError("Could not extract playable stream from this ${detectedSource.displayName} link. Try another link or check your internet.")
                 }
             } catch (e: Exception) {
+                if (targetFile.exists()) targetFile.delete()
                 _downloads.update { list ->
                     list.map { if (it.trackId == trackId) it.copy(status = DownloadStatus.FAILED) else it }
                 }
                 onError("Download error: ${e.message}")
             }
+        }
+    }
+
+    private fun createTargetFile(rawName: String, trackId: String, ext: String): File {
+        val publicTarget = File(publicMusicDir, "${rawName}_${trackId.takeLast(6)}.$ext")
+        return try {
+            if (!publicMusicDir.exists()) publicMusicDir.mkdirs()
+            publicTarget.createNewFile()
+            publicTarget
+        } catch (_: Exception) {
+            File(downloadsDir, "${rawName}_${trackId.takeLast(6)}.$ext")
+        }
+    }
+
+    private fun mapExtensionAndMime(
+        contentType: String,
+        url: String,
+        isVideo: Boolean,
+        defaultExt: String
+    ): Pair<String, String> {
+        val ct = contentType.lowercase()
+        val u = url.lowercase()
+        return when {
+            isVideo || ct.contains("video/mp4") || u.contains("mime=video%2fmp4") || u.contains(".mp4") ->
+                "mp4" to "video/mp4"
+            ct.contains("video/webm") -> "webm" to "video/webm"
+            ct.contains("audio/mp4") || ct.contains("audio/aac") || u.contains("mime=audio%2fmp4") || u.contains(".m4a") ->
+                "m4a" to "audio/mp4"
+            ct.contains("audio/mpeg") || ct.contains("audio/mp3") || u.contains(".mp3") ->
+                "mp3" to "audio/mpeg"
+            ct.contains("audio/ogg") || ct.contains("application/ogg") || u.contains(".ogg") ->
+                "ogg" to "audio/ogg"
+            ct.contains("audio/wav") || u.contains(".wav") ->
+                "wav" to "audio/wav"
+            ct.contains("audio/webm") ->
+                "webm" to "audio/webm"
+            else -> defaultExt to (if (isVideo) "video/mp4" else "audio/mpeg")
+        }
+    }
+
+    /**
+     * Multi-Engine Real YouTube Downloader:
+     * 1. YouTube oEmbed for accurate title, channel & thumbnail cover
+     * 2. YouTube InnerTube player API (IOS -> ANDROID_VR -> ANDROID -> TVHTML5_SIMPLY_EMBEDDED_PLAYER)
+     * 3. Mobile Watch Page ytInitialPlayerResponse JSON extractor
+     * 4. Federated Piped & Invidious instances fallback
+     */
+    private fun resolveYouTubeStream(
+        okHttpClient: okhttp3.OkHttpClient,
+        ytId: String,
+        isVideo: Boolean
+    ): ResolvedMedia {
+        var resolvedTitle: String? = null
+        var resolvedArtist: String? = null
+        var resolvedCoverUrl: String? = "https://img.youtube.com/vi/$ytId/hqdefault.jpg"
+        var resolvedDurationSec = 180
+        var streamUrl: String? = null
+        var preferredExt: String? = null
+        var mimeType: String? = null
+
+        // 1. Official YouTube oEmbed for instant reliable metadata
+        try {
+            val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$ytId&format=json"
+            val oembedReq = okhttp3.Request.Builder()
+                .url(oembedUrl)
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            okHttpClient.newCall(oembedReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val oembedJson = JSONObject(resp.body?.string() ?: "{}")
+                    resolvedTitle = oembedJson.optString("title").trim().ifBlank { null }
+                    resolvedArtist = oembedJson.optString("author_name").trim().ifBlank { null }
+                    val thumb = oembedJson.optString("thumbnail_url").trim()
+                    if (thumb.isNotBlank()) resolvedCoverUrl = thumb
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "YouTube oEmbed: ${e.message}")
+        }
+
+        // 2. YouTube InnerTube native client APIs (returns direct playable URLs!)
+        data class InnerTubeClient(
+            val clientName: String,
+            val clientVersion: String,
+            val userAgent: String,
+            val deviceMake: String? = null,
+            val deviceModel: String? = null,
+            val osVersion: String? = null,
+            val androidSdk: Int? = null
+        )
+
+        val clients = listOf(
+            InnerTubeClient(
+                clientName = "IOS",
+                clientVersion = "19.45.4",
+                userAgent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
+                deviceMake = "Apple",
+                deviceModel = "iPhone16,2",
+                osVersion = "18.1.0.22B83"
+            ),
+            InnerTubeClient(
+                clientName = "ANDROID_VR",
+                clientVersion = "1.60.19",
+                userAgent = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                deviceMake = "Oculus",
+                deviceModel = "Quest 3",
+                osVersion = "12L",
+                androidSdk = 32
+            ),
+            InnerTubeClient(
+                clientName = "ANDROID",
+                clientVersion = "19.44.38",
+                userAgent = "com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip",
+                osVersion = "11",
+                androidSdk = 30
+            ),
+            InnerTubeClient(
+                clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                clientVersion = "2.0",
+                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            )
+        )
+
+        for (client in clients) {
+            if (streamUrl != null) break
+            try {
+                val clientJson = JSONObject().apply {
+                    put("clientName", client.clientName)
+                    put("clientVersion", client.clientVersion)
+                    put("hl", "en")
+                    put("gl", "US")
+                    client.deviceMake?.let { put("deviceMake", it) }
+                    client.deviceModel?.let { put("deviceModel", it) }
+                    client.osVersion?.let { put("osVersion", it) }
+                    client.androidSdk?.let { put("androidSdkVersion", it) }
+                }
+                val contextJson = JSONObject().apply {
+                    put("client", clientJson)
+                    if (client.clientName == "TVHTML5_SIMPLY_EMBEDDED_PLAYER") {
+                        put("thirdParty", JSONObject().apply { put("embedUrl", "https://www.youtube.com/") })
+                    }
+                }
+                val payload = JSONObject().apply {
+                    put("videoId", ytId)
+                    put("context", contextJson)
+                    put("contentCheckOk", true)
+                    put("racyCheckOk", true)
+                }
+
+                val req = okhttp3.Request.Builder()
+                    .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                    .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .header("User-Agent", client.userAgent)
+                    .header("Origin", "https://www.youtube.com")
+                    .build()
+
+                okHttpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val root = JSONObject(resp.body?.string() ?: "{}")
+                        val details = root.optJSONObject("videoDetails")
+                        if (details != null) {
+                            if (resolvedTitle == null) resolvedTitle = details.optString("title").trim().ifBlank { null }
+                            if (resolvedArtist == null) resolvedArtist = details.optString("author").trim().ifBlank { null }
+                            val len = details.optString("lengthSeconds").toIntOrNull() ?: 0
+                            if (len > 0) resolvedDurationSec = len
+                        }
+
+                        val streamingData = root.optJSONObject("streamingData")
+                        if (streamingData != null) {
+                            val picked = pickBestYouTubeStreamingFormat(streamingData, isVideo)
+                            if (picked != null) {
+                                streamUrl = picked.first
+                                preferredExt = picked.second
+                                mimeType = picked.third
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MusicRepository", "InnerTube (${client.clientName}): ${e.message}")
+            }
+        }
+
+        // 3. Fallback: Parse ytInitialPlayerResponse from YouTube mobile watch page
+        if (streamUrl == null) {
+            try {
+                val watchReq = okhttp3.Request.Builder()
+                    .url("https://m.youtube.com/watch?v=$ytId")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                    .build()
+                okHttpClient.newCall(watchReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val html = resp.body?.string() ?: ""
+                        val marker = "var ytInitialPlayerResponse = "
+                        val start = html.indexOf(marker)
+                        if (start != -1) {
+                            val jsonStart = start + marker.length
+                            val end = html.indexOf(";</script>", jsonStart)
+                            if (end > jsonStart) {
+                                val rawJson = html.substring(jsonStart, end)
+                                val root = JSONObject(rawJson)
+                                val details = root.optJSONObject("videoDetails")
+                                if (details != null) {
+                                    if (resolvedTitle == null) resolvedTitle = details.optString("title").trim().ifBlank { null }
+                                    if (resolvedArtist == null) resolvedArtist = details.optString("author").trim().ifBlank { null }
+                                    val len = details.optString("lengthSeconds").toIntOrNull() ?: 0
+                                    if (len > 0) resolvedDurationSec = len
+                                }
+                                root.optJSONObject("streamingData")?.let { sd ->
+                                    val picked = pickBestYouTubeStreamingFormat(sd, isVideo)
+                                    if (picked != null) {
+                                        streamUrl = picked.first
+                                        preferredExt = picked.second
+                                        mimeType = picked.third
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MusicRepository", "YouTube HTML scrape: ${e.message}")
+            }
+        }
+
+        // 4. Fallback: Federated Piped & Invidious public instances
+        if (streamUrl == null) {
+            val pipedHosts = listOf(
+                "https://pipedapi.kavin.rocks",
+                "https://pipedapi.adminforge.de",
+                "https://api.piped.yt",
+                "https://pipedapi.reallyaweso.me"
+            )
+            for (host in pipedHosts) {
+                if (streamUrl != null) break
+                try {
+                    val req = okhttp3.Request.Builder()
+                        .url("$host/streams/$ytId")
+                        .header("User-Agent", "Mozilla/5.0")
+                        .build()
+                    okHttpClient.newCall(req).execute().use { pResp ->
+                        if (pResp.isSuccessful) {
+                            val pJson = JSONObject(pResp.body?.string() ?: "{}")
+                            if (resolvedTitle == null) resolvedTitle = pJson.optString("title").trim().ifBlank { null }
+                            if (resolvedArtist == null) resolvedArtist = pJson.optString("uploader").trim().ifBlank { null }
+                            val dur = pJson.optInt("duration", 0)
+                            if (dur > 0) resolvedDurationSec = dur
+
+                            if (isVideo) {
+                                val vStreams = pJson.optJSONArray("videoStreams")
+                                if (vStreams != null) {
+                                    for (i in 0 until vStreams.length()) {
+                                        val s = vStreams.optJSONObject(i) ?: continue
+                                        val videoOnly = s.optBoolean("videoOnly", true)
+                                        val urlStr = s.optString("url")
+                                        if (!videoOnly && urlStr.startsWith("http")) {
+                                            streamUrl = urlStr
+                                            preferredExt = "mp4"
+                                            mimeType = "video/mp4"
+                                            break
+                                        }
+                                    }
+                                    if (streamUrl == null && vStreams.length() > 0) {
+                                        val first = vStreams.optJSONObject(0)?.optString("url")
+                                        if (!first.isNullOrBlank()) {
+                                            streamUrl = first
+                                            preferredExt = "mp4"
+                                            mimeType = "video/mp4"
+                                        }
+                                    }
+                                }
+                            } else {
+                                val aStreams = pJson.optJSONArray("audioStreams")
+                                if (aStreams != null) {
+                                    // Prefer m4a/mp4 audio so all Android players play it cleanly
+                                    var fallbackUrl: String? = null
+                                    for (i in 0 until aStreams.length()) {
+                                        val s = aStreams.optJSONObject(i) ?: continue
+                                        val urlStr = s.optString("url")
+                                        val mime = s.optString("mimeType").lowercase()
+                                        if (urlStr.startsWith("http")) {
+                                            if (mime.contains("audio/mp4") || mime.contains("m4a")) {
+                                                streamUrl = urlStr
+                                                preferredExt = "m4a"
+                                                mimeType = "audio/mp4"
+                                                break
+                                            } else if (fallbackUrl == null) {
+                                                fallbackUrl = urlStr
+                                            }
+                                        }
+                                    }
+                                    if (streamUrl == null && fallbackUrl != null) {
+                                        streamUrl = fallbackUrl
+                                        preferredExt = "m4a"
+                                        mimeType = "audio/mp4"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MusicRepository", "Piped ($host): ${e.message}")
+                }
+            }
+        }
+
+        if (streamUrl == null) {
+            val invidiousHosts = listOf(
+                "https://inv.nadeko.net",
+                "https://invidious.nerdvpn.de",
+                "https://yewtu.be"
+            )
+            for (host in invidiousHosts) {
+                if (streamUrl != null) break
+                try {
+                    val req = okhttp3.Request.Builder()
+                        .url("$host/api/v1/videos/$ytId")
+                        .header("User-Agent", "Mozilla/5.0")
+                        .build()
+                    okHttpClient.newCall(req).execute().use { iResp ->
+                        if (iResp.isSuccessful) {
+                            val iJson = JSONObject(iResp.body?.string() ?: "{}")
+                            if (resolvedTitle == null) resolvedTitle = iJson.optString("title").trim().ifBlank { null }
+                            if (resolvedArtist == null) resolvedArtist = iJson.optString("author").trim().ifBlank { null }
+                            val dur = iJson.optInt("lengthSeconds", 0)
+                            if (dur > 0) resolvedDurationSec = dur
+
+                            if (isVideo) {
+                                val formats = iJson.optJSONArray("formatStreams")
+                                if (formats != null && formats.length() > 0) {
+                                    val urlStr = formats.optJSONObject(0)?.optString("url")
+                                    if (!urlStr.isNullOrBlank()) {
+                                        streamUrl = urlStr
+                                        preferredExt = "mp4"
+                                        mimeType = "video/mp4"
+                                    }
+                                }
+                            } else {
+                                val adaptive = iJson.optJSONArray("adaptiveFormats")
+                                if (adaptive != null) {
+                                    for (i in 0 until adaptive.length()) {
+                                        val s = adaptive.optJSONObject(i) ?: continue
+                                        val type = s.optString("type").lowercase()
+                                        val urlStr = s.optString("url")
+                                        if (type.startsWith("audio/mp4") && urlStr.startsWith("http")) {
+                                            streamUrl = urlStr
+                                            preferredExt = "m4a"
+                                            mimeType = "audio/mp4"
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MusicRepository", "Invidious ($host): ${e.message}")
+                }
+            }
+        }
+
+        return ResolvedMedia(
+            streamUrl = streamUrl,
+            title = resolvedTitle,
+            artist = resolvedArtist,
+            coverUrl = resolvedCoverUrl,
+            durationSeconds = resolvedDurationSec,
+            preferredExt = preferredExt ?: if (isVideo) "mp4" else "m4a",
+            mimeType = mimeType ?: if (isVideo) "video/mp4" else "audio/mp4"
+        )
+    }
+
+    /**
+     * Picks best direct stream URL (audio/mp4 AAC or muxed video/mp4) from YouTube streamingData.
+     */
+    private fun pickBestYouTubeStreamingFormat(
+        streamingData: JSONObject,
+        isVideo: Boolean
+    ): Triple<String, String, String>? {
+        if (!isVideo) {
+            // Audio mode: prefer direct audio/mp4 (itag 140) in adaptiveFormats so it's compact & fast
+            val adaptive = streamingData.optJSONArray("adaptiveFormats")
+            if (adaptive != null) {
+                var bestM4aUrl: String? = null
+                var bestM4aBitrate = -1
+                var fallbackAudioUrl: String? = null
+                var fallbackMime = "audio/webm"
+                var fallbackExt = "webm"
+
+                for (i in 0 until adaptive.length()) {
+                    val fmt = adaptive.optJSONObject(i) ?: continue
+                    val directUrl = fmt.optString("url")
+                    if (!directUrl.startsWith("http")) continue
+                    val mime = fmt.optString("mimeType").lowercase()
+                    val bitrate = fmt.optInt("bitrate", 0)
+                    if (mime.startsWith("audio/mp4")) {
+                        if (bitrate > bestM4aBitrate) {
+                            bestM4aBitrate = bitrate
+                            bestM4aUrl = directUrl
+                        }
+                    } else if (mime.startsWith("audio/") && fallbackAudioUrl == null) {
+                        fallbackAudioUrl = directUrl
+                        fallbackMime = mime.substringBefore(";").trim()
+                        fallbackExt = if (fallbackMime.contains("ogg")) "ogg" else "webm"
+                    }
+                }
+                if (bestM4aUrl != null) {
+                    return Triple(bestM4aUrl, "m4a", "audio/mp4")
+                }
+                if (fallbackAudioUrl != null) {
+                    return Triple(fallbackAudioUrl, fallbackExt, fallbackMime)
+                }
+            }
+        }
+
+        // Video mode (or audio fallback): muxed MP4 formats (contains both video + audio)
+        val formats = streamingData.optJSONArray("formats")
+        if (formats != null) {
+            var bestMp4Url: String? = null
+            var bestBitrate = -1
+            for (i in 0 until formats.length()) {
+                val fmt = formats.optJSONObject(i) ?: continue
+                val directUrl = fmt.optString("url")
+                if (!directUrl.startsWith("http")) continue
+                val mime = fmt.optString("mimeType").lowercase()
+                val bitrate = fmt.optInt("bitrate", 0)
+                if (mime.contains("mp4") && bitrate > bestBitrate) {
+                    bestBitrate = bitrate
+                    bestMp4Url = directUrl
+                }
+            }
+            if (bestMp4Url != null) {
+                return Triple(bestMp4Url, "mp4", "video/mp4")
+            }
+        }
+        return null
+    }
+
+    /**
+     * Real TikTok Downloader (Web Rehydration JSON + TikWM API)
+     */
+    private fun resolveTikTokStream(
+        okHttpClient: okhttp3.OkHttpClient,
+        finalUrl: String,
+        isVideo: Boolean
+    ): ResolvedMedia {
+        var mediaStreamUrl: String? = null
+        var resolvedTitle: String? = null
+        var resolvedArtist: String? = null
+        var resolvedCoverUrl: String? = null
+        var resolvedDurationSec = 180
+
+        // Method A: Extract real stream from official TikTok Web JSON
+        try {
+            val pageReq = okhttp3.Request.Builder()
+                .url(finalUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .build()
+            okHttpClient.newCall(pageReq).execute().use { pageResp ->
+                if (pageResp.isSuccessful) {
+                    val html = pageResp.body?.string() ?: ""
+                    val scriptMatcher = Pattern.compile("<script id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"[^>]*>(.*?)</script>").matcher(html)
+                    if (scriptMatcher.find()) {
+                        val jsonStr = scriptMatcher.group(1)
+                        val rootJson = JSONObject(jsonStr ?: "{}")
+                        val defaultScope = rootJson.optJSONObject("__DEFAULT_SCOPE__")
+                        val videoDetail = defaultScope?.optJSONObject("webapp.video-detail")
+                        val itemStruct = videoDetail?.optJSONObject("itemInfo")?.optJSONObject("itemStruct")
+                        if (itemStruct != null) {
+                            val desc = itemStruct.optString("desc").trim()
+                            if (desc.isNotBlank()) resolvedTitle = desc
+                            val musicObj = itemStruct.optJSONObject("music")
+                            if (musicObj != null) {
+                                if (resolvedTitle == null) {
+                                    val mTitle = musicObj.optString("title").trim()
+                                    if (mTitle.isNotBlank()) resolvedTitle = mTitle
+                                }
+                                val mAuthor = musicObj.optString("authorName").trim()
+                                if (mAuthor.isNotBlank()) resolvedArtist = mAuthor
+                                val cover = musicObj.optString("coverLarge").ifBlank { musicObj.optString("coverThumb") }
+                                if (cover.isNotBlank()) resolvedCoverUrl = cover
+                                val dur = musicObj.optInt("duration", 0)
+                                if (dur > 0) resolvedDurationSec = dur
+                                if (!isVideo) {
+                                    mediaStreamUrl = musicObj.optString("playUrl").ifBlank { null }
+                                }
+                            }
+                            if (isVideo || mediaStreamUrl == null) {
+                                val videoObj = itemStruct.optJSONObject("video")
+                                val vPlay = videoObj?.optString("playAddr")?.ifBlank { null }
+                                if (vPlay != null) {
+                                    if (isVideo) mediaStreamUrl = vPlay
+                                    else if (mediaStreamUrl == null) mediaStreamUrl = vPlay
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Direct TikTok HTML scrape: ${e.message}")
+        }
+
+        // Method B: Fallback to TikWM API
+        if (mediaStreamUrl == null) {
+            try {
+                val tikwmUrl = "https://www.tikwm.com/api/?url=" + URLEncoder.encode(finalUrl, "UTF-8")
+                val apiReq = okhttp3.Request.Builder()
+                    .url(tikwmUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .build()
+                okHttpClient.newCall(apiReq).execute().use { apiResp ->
+                    if (apiResp.isSuccessful) {
+                        val json = JSONObject(apiResp.body?.string() ?: "{}")
+                        if (json.optInt("code") == 0) {
+                            val data = json.optJSONObject("data")
+                            if (data != null) {
+                                val t = data.optString("title").trim()
+                                if (t.isNotBlank()) resolvedTitle = t
+                                val musicInfo = data.optJSONObject("music_info")
+                                if (musicInfo != null) {
+                                    if (resolvedTitle == null) {
+                                        val mt = musicInfo.optString("title").trim()
+                                        if (mt.isNotBlank()) resolvedTitle = mt
+                                    }
+                                    val ma = musicInfo.optString("author").trim()
+                                    if (ma.isNotBlank()) resolvedArtist = ma
+                                    val dur = musicInfo.optInt("duration", 0)
+                                    if (dur > 0) resolvedDurationSec = dur
+                                }
+                                if (resolvedArtist == null) {
+                                    val authorObj = data.optJSONObject("author")
+                                    val nick = authorObj?.optString("nickname")?.trim() ?: ""
+                                    if (nick.isNotBlank()) resolvedArtist = nick
+                                }
+                                if (resolvedCoverUrl == null) {
+                                    resolvedCoverUrl = data.optString("cover").ifBlank { null }
+                                }
+                                mediaStreamUrl = if (isVideo) {
+                                    data.optString("play").ifBlank { null }
+                                } else {
+                                    data.optString("music").ifBlank { data.optString("play").ifBlank { null } }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MusicRepository", "TikWM API fallback: ${e.message}")
+            }
+        }
+
+        return ResolvedMedia(
+            streamUrl = mediaStreamUrl,
+            title = resolvedTitle,
+            artist = resolvedArtist,
+            coverUrl = resolvedCoverUrl,
+            durationSeconds = resolvedDurationSec,
+            preferredExt = if (isVideo) "mp4" else "mp3",
+            mimeType = if (isVideo) "video/mp4" else "audio/mpeg"
+        )
+    }
+
+    /**
+     * Real Google (Drive / Redirects / Search embeds) & General Web Downloader:
+     * - Handles Google Drive large-file virus-warning confirmation HTML forms
+     * - Follows Google URL unwraps and delegates if destination is YouTube or TikTok
+     * - Probes Content-Type directly for direct media links (MP3, M4A, MP4, WAV, AAC, OGG)
+     * - Deep-scrapes HTML pages for og:audio, og:video, <audio>, <video>, <source>, <a href>, JSON media URLs, or embedded YouTube videos
+     */
+    private fun resolveGoogleOrWebStream(
+        okHttpClient: okhttp3.OkHttpClient,
+        finalUrl: String,
+        isVideo: Boolean
+    ): Pair<ResolvedMedia, LinkSource?> {
+        // 1. Check Google Drive ID
+        val driveFileId = LinkDetector.extractGoogleDriveFileId(finalUrl)
+        if (driveFileId != null) {
+            var driveTitle: String? = null
+            var driveStreamUrl: String? = "https://drive.usercontent.google.com/download?id=$driveFileId&export=download&confirm=t"
+
+            // Probe drive URL to see if it triggers confirmation HTML or directly gives file + Content-Disposition filename
+            try {
+                val probeReq = okhttp3.Request.Builder()
+                    .url("https://drive.google.com/uc?export=download&id=$driveFileId")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .build()
+                okHttpClient.newCall(probeReq).execute().use { resp ->
+                    val disp = resp.header("Content-Disposition") ?: ""
+                    val fnMatcher = Pattern.compile("filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?", Pattern.CASE_INSENSITIVE).matcher(disp)
+                    if (fnMatcher.find()) {
+                        driveTitle = URLDecoder.decode(fnMatcher.group(1), "UTF-8").substringBeforeLast(".")
+                    }
+                    val ct = resp.header("Content-Type")?.lowercase() ?: ""
+                    if (!ct.contains("text/html") && resp.isSuccessful) {
+                        driveStreamUrl = resp.request.url.toString()
+                    } else if (ct.contains("text/html")) {
+                        val html = resp.body?.string() ?: ""
+                        // Parse Drive confirmation form
+                        val formMatcher = Pattern.compile("action=[\"'](https://drive\\.usercontent\\.google\\.com/download[^\"']*)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+                        val actionBase = if (formMatcher.find()) formMatcher.group(1) else "https://drive.usercontent.google.com/download"
+                        val uuidMatcher = Pattern.compile("name=[\"']uuid[\"']\\s+value=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+                        val uuid = if (uuidMatcher.find()) uuidMatcher.group(1) else null
+                        val confirmMatcher = Pattern.compile("name=[\"']confirm[\"']\\s+value=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+                        val confirm = if (confirmMatcher.find()) confirmMatcher.group(1) else "t"
+
+                        val nameMatcher = Pattern.compile("<span class=\"uc-name-size\"><a[^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE).matcher(html)
+                        if (driveTitle == null && nameMatcher.find()) {
+                            driveTitle = nameMatcher.group(1)?.trim()?.substringBeforeLast(".")
+                        }
+                        driveStreamUrl = buildString {
+                            append(actionBase)
+                            append("?id=").append(driveFileId)
+                            append("&export=download")
+                            append("&confirm=").append(confirm)
+                            if (uuid != null) append("&uuid=").append(uuid)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MusicRepository", "Google Drive probe: ${e.message}")
+            }
+
+            return ResolvedMedia(
+                streamUrl = driveStreamUrl,
+                title = driveTitle ?: "Google Drive Song",
+                artist = "Google Drive",
+                preferredExt = if (isVideo) "mp4" else "mp3",
+                mimeType = if (isVideo) "video/mp4" else "audio/mpeg"
+            ) to LinkSource.GOOGLE
+        }
+
+        // 2. Check if direct media URL by extension
+        val lower = finalUrl.lowercase()
+        val isDirectExt = lower.contains(".mp3") || lower.contains(".m4a") || lower.contains(".mp4") ||
+            lower.contains(".wav") || lower.contains(".aac") || lower.contains(".ogg") || lower.contains(".webm")
+        if (isDirectExt && !lower.contains(".html") && !lower.contains(".php?")) {
+            val segment = finalUrl.substringAfterLast("/").substringBefore("?").substringBeforeLast(".")
+            val title = try {
+                URLDecoder.decode(segment, "UTF-8").replace("_", " ").replace("-", " ").trim().ifBlank { null }
+            } catch (_: Exception) {
+                segment.ifBlank { null }
+            }
+            return ResolvedMedia(
+                streamUrl = finalUrl,
+                title = title,
+                artist = "Web Audio"
+            ) to null
+        }
+
+        // 3. Probe URL over network: if it responds with audio/* or video/* directly, use it; if HTML, deep-scrape media
+        var mediaStreamUrl: String? = null
+        var resolvedTitle: String? = null
+        var resolvedCoverUrl: String? = null
+        var redirectedSource: LinkSource? = null
+
+        try {
+            val pageReq = okhttp3.Request.Builder()
+                .url(finalUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .build()
+            okHttpClient.newCall(pageReq).execute().use { pageResp ->
+                val actualUrl = LinkDetector.unwrapGoogleUrl(pageResp.request.url.toString())
+                val actualSource = LinkDetector.detectSource(actualUrl)
+                if (actualSource == LinkSource.YOUTUBE) {
+                    val ytId = LinkDetector.extractYouTubeVideoId(actualUrl)
+                    if (ytId != null) {
+                        return resolveYouTubeStream(okHttpClient, ytId, isVideo) to LinkSource.YOUTUBE
+                    }
+                } else if (actualSource == LinkSource.TIKTOK) {
+                    return resolveTikTokStream(okHttpClient, actualUrl, isVideo) to LinkSource.TIKTOK
+                }
+
+                val ct = pageResp.header("Content-Type")?.lowercase() ?: ""
+                if (pageResp.isSuccessful && !ct.contains("text/html")) {
+                    // Server returned raw media stream directly
+                    val disp = pageResp.header("Content-Disposition") ?: ""
+                    val fnMatcher = Pattern.compile("filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?", Pattern.CASE_INSENSITIVE).matcher(disp)
+                    if (fnMatcher.find()) {
+                        resolvedTitle = URLDecoder.decode(fnMatcher.group(1), "UTF-8").substringBeforeLast(".")
+                    } else {
+                        val segment = actualUrl.substringAfterLast("/").substringBefore("?").substringBeforeLast(".")
+                        resolvedTitle = segment.replace("_", " ").replace("-", " ").trim().ifBlank { null }
+                    }
+                    mediaStreamUrl = actualUrl
+                } else if (pageResp.isSuccessful) {
+                    val html = pageResp.body?.string() ?: ""
+
+                    // Page title
+                    val tMatcher = Pattern.compile("<title[^>]*>(.*?)</title>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(html)
+                    if (tMatcher.find()) {
+                        resolvedTitle = tMatcher.group(1)?.trim()
+                            ?.replace(Regex("\\s*[-|]\\s*(YouTube|TikTok|Google).*"), "")
+                            ?.take(80)
+                    }
+
+                    // OpenGraph cover art
+                    val ogImg = Pattern.compile("<meta\\s+(?:property|name)=[\"']og:image[\"']\\s+content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (ogImg.find()) resolvedCoverUrl = resolveRelativeUrl(actualUrl, ogImg.group(1))
+
+                    // Try meta og:audio / og:video / twitter:player:stream
+                    val metaMediaRegex = if (isVideo) {
+                        "<meta\\s+(?:property|name)=[\"'](?:og:video(?::url|:secure_url)?|twitter:player:stream)[\"']\\s+content=[\"']([^\"']+)[\"']"
+                    } else {
+                        "<meta\\s+(?:property|name)=[\"'](?:og:audio(?::url|:secure_url)?|og:video(?::url|:secure_url)?|twitter:player:stream)[\"']\\s+content=[\"']([^\"']+)[\"']"
+                    }
+                    val metaMatcher = Pattern.compile(metaMediaRegex, Pattern.CASE_INSENSITIVE).matcher(html)
+                    while (metaMatcher.find() && mediaStreamUrl == null) {
+                        val candidate = metaMatcher.group(1) ?: continue
+                        if (!candidate.contains("youtube.com/embed") && (candidate.contains(".mp3") || candidate.contains(".m4a") || candidate.contains(".mp4") || candidate.contains(".wav") || candidate.contains("stream"))) {
+                            mediaStreamUrl = resolveRelativeUrl(actualUrl, candidate)
+                        }
+                    }
+
+                    // Try <audio>, <video>, <source> tags
+                    if (mediaStreamUrl == null) {
+                        val tagPattern = if (isVideo) {
+                            "<(?:video|source)[^>]*src=[\"']([^\"']+\\.(?:mp4|webm|m4v)[^\"']*)[\"']"
+                        } else {
+                            "<(?:audio|source)[^>]*src=[\"']([^\"']+\\.(?:mp3|m4a|ogg|wav|aac)[^\"']*)[\"']"
+                        }
+                        val srcMatcher = Pattern.compile(tagPattern, Pattern.CASE_INSENSITIVE).matcher(html)
+                        if (srcMatcher.find()) {
+                            mediaStreamUrl = resolveRelativeUrl(actualUrl, srcMatcher.group(1))
+                        }
+                    }
+
+                    // Try direct <a href="...mp3|m4a|mp4"> download links or JSON contentUrl
+                    if (mediaStreamUrl == null) {
+                        val hrefPattern = if (isVideo) {
+                            "(?:href|contentUrl)[\"':=\\s]+(https?:\\\\?/\\\\?/[^\"'\\s<>]+\\.mp4[^\"'\\s<>]*)"
+                        } else {
+                            "(?:href|contentUrl)[\"':=\\s]+(https?:\\\\?/\\\\?/[^\"'\\s<>]+\\.(?:mp3|m4a|aac|wav|ogg)[^\"'\\s<>]*)"
+                        }
+                        val hrefMatcher = Pattern.compile(hrefPattern, Pattern.CASE_INSENSITIVE).matcher(html)
+                        if (hrefMatcher.find()) {
+                            mediaStreamUrl = hrefMatcher.group(1)?.replace("\\/", "/")?.replace("\\u0026", "&")
+                        }
+                    }
+
+                    // If page (or Google Search page!) embeds a YouTube link, extract and download that YouTube track!
+                    if (mediaStreamUrl == null) {
+                        val ytEmbedMatcher = Pattern.compile(
+                            "https?:\\/\\/(?:www\\.|m\\.)?(?:youtube\\.com\\/(?:watch\\?v=|embed\\/|shorts\\/)|youtu\\.be\\/)([a-zA-Z0-9_-]{11})",
+                            Pattern.CASE_INSENSITIVE
+                        ).matcher(html)
+                        if (ytEmbedMatcher.find()) {
+                            val embeddedYtId = ytEmbedMatcher.group(1)
+                            if (embeddedYtId != null) {
+                                return resolveYouTubeStream(okHttpClient, embeddedYtId, isVideo) to LinkSource.YOUTUBE
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Google/Web resolution error: ${e.message}")
+        }
+
+        return ResolvedMedia(
+            streamUrl = mediaStreamUrl,
+            title = resolvedTitle,
+            coverUrl = resolvedCoverUrl
+        ) to redirectedSource
+    }
+
+    private fun resolveRelativeUrl(baseUrl: String, candidate: String?): String? {
+        if (candidate.isNullOrBlank()) return null
+        return try {
+            URI(baseUrl).resolve(candidate.trim()).toString()
+        } catch (_: Exception) {
+            candidate.trim()
         }
     }
 
@@ -817,11 +1382,16 @@ class MusicRepository(private val context: Context) {
         }
     }
 
-    private fun saveToMediaStore(file: File, title: String, artist: String, isVideo: Boolean) {
+    private fun saveToMediaStore(
+        file: File,
+        title: String,
+        artist: String,
+        isVideo: Boolean,
+        ext: String = if (isVideo) "mp4" else "mp3",
+        mime: String = if (isVideo) "video/mp4" else "audio/mpeg"
+    ) {
         try {
             val sanitizedTitle = title.replace(Regex("[^a-zA-Z0-9._ -]"), "").take(50).ifBlank { "Song" }
-            val ext = if (isVideo) "mp4" else "mp3"
-            val mime = if (isVideo) "video/mp4" else "audio/mpeg"
 
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, "$sanitizedTitle.$ext")

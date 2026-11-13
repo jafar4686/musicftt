@@ -108,7 +108,7 @@ fun SongsScreen(
         modifier = Modifier
             .fillMaxSize()
             .testTag("songs_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp)
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         // --- 1. HEADER SECTION ---
         item {

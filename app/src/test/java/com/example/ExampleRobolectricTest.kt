@@ -101,4 +101,41 @@ class ExampleRobolectricTest {
     PlaybackManager.next(context)
     assertEquals("track_12", PlaybackManager.playbackState.value.currentTrack?.id)
   }
+
+  @Test
+  fun `automatic link detection recognizes youtube tiktok google and web without selection`() {
+    assertEquals(
+      com.example.data.LinkSource.YOUTUBE,
+      com.example.data.LinkDetector.detectSource("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    )
+    assertEquals(
+      com.example.data.LinkSource.YOUTUBE,
+      com.example.data.LinkDetector.detectSource("youtu.be/kJQP7kiw5Fk")
+    )
+    assertEquals(
+      "kJQP7kiw5Fk",
+      com.example.data.LinkDetector.extractYouTubeVideoId("https://youtube.com/shorts/kJQP7kiw5Fk?feature=share")
+    )
+    assertEquals(
+      com.example.data.LinkSource.TIKTOK,
+      com.example.data.LinkDetector.detectSource("https://vm.tiktok.com/ZM6abc123/")
+    )
+    assertEquals(
+      com.example.data.LinkSource.GOOGLE,
+      com.example.data.LinkDetector.detectSource("https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view")
+    )
+    assertEquals(
+      "1AbCdEfGhIjKlMnOpQrStUvWxYz",
+      com.example.data.LinkDetector.extractGoogleDriveFileId("https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view")
+    )
+    // Google search redirect wrapping YouTube URL should automatically unwrap and detect YouTube!
+    assertEquals(
+      com.example.data.LinkSource.YOUTUBE,
+      com.example.data.LinkDetector.detectSource("https://www.google.com/url?sa=t&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ")
+    )
+    assertEquals(
+      com.example.data.LinkSource.WEB,
+      com.example.data.LinkDetector.detectSource("https://example.com/audio/song.mp3")
+    )
+  }
 }

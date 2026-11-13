@@ -22,10 +22,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,17 +41,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.AppScreen
 import com.example.ui.MusicViewModel
 import com.example.ui.components.AddSongDialog
 import com.example.ui.components.FullPlayerModal
 import com.example.ui.components.MiniPlayerBar
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SongsScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.PlusBlue
 
 class MainActivity : ComponentActivity() {
 
@@ -136,7 +151,7 @@ fun MainScreenContent(
 ) {
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val soundSettings by viewModel.soundSettings.collectAsStateWithLifecycle()
-    val showSoundSettings by viewModel.showSoundSettings.collectAsStateWithLifecycle()
+    val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     val favoriteTrackIds by viewModel.favoriteTrackIds.collectAsStateWithLifecycle()
     val showAddSongDialog by viewModel.showAddSongDialog.collectAsStateWithLifecycle()
@@ -151,9 +166,12 @@ fun MainScreenContent(
         }
     }
 
-    // Handle back button for full player
+    // Handle back button for full player or Settings tab
     BackHandler(enabled = playbackState.isFullPlayerVisible) {
         viewModel.setFullPlayerVisible(false)
+    }
+    BackHandler(enabled = !playbackState.isFullPlayerVisible && currentScreen == AppScreen.SETTINGS) {
+        viewModel.navigateTo(AppScreen.SONGS)
     }
 
     Scaffold(
@@ -162,21 +180,74 @@ fun MainScreenContent(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            // Mini Player Bar docked at the bottom with navigation bar insets
-            if (playbackState.currentTrack != null && !playbackState.isFullPlayerVisible) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                ) {
-                    MiniPlayerBar(
-                        playbackState = playbackState,
-                        playbackSpeed = soundSettings.playbackSpeed,
-                        onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
-                        onTogglePlayPause = { viewModel.togglePlayPause() },
-                        onNext = { viewModel.next() },
-                        onClick = { viewModel.setFullPlayerVisible(true) }
-                    )
+            if (!playbackState.isFullPlayerVisible) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Mini Player Bar floating cleanly above the Sound / Settings bottom bar
+                    if (playbackState.currentTrack != null) {
+                        MiniPlayerBar(
+                            playbackState = playbackState,
+                            playbackSpeed = soundSettings.playbackSpeed,
+                            onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
+                            onTogglePlayPause = { viewModel.togglePlayPause() },
+                            onNext = { viewModel.next() },
+                            onClick = { viewModel.setFullPlayerVisible(true) }
+                        )
+                    }
+
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp
+                    ) {
+                        NavigationBarItem(
+                            selected = currentScreen == AppScreen.SONGS,
+                            onClick = { viewModel.navigateTo(AppScreen.SONGS) },
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = "Sound"
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Sound",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = PlusBlue,
+                                selectedTextColor = PlusBlue,
+                                indicatorColor = PlusBlue.copy(alpha = 0.14f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier.testTag("nav_sound_button")
+                        )
+
+                        NavigationBarItem(
+                            selected = currentScreen == AppScreen.SETTINGS,
+                            onClick = { viewModel.navigateTo(AppScreen.SETTINGS) },
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Settings",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = PlusBlue,
+                                selectedTextColor = PlusBlue,
+                                indicatorColor = PlusBlue.copy(alpha = 0.14f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier.testTag("nav_settings_button")
+                        )
+                    }
                 }
             }
         }
@@ -186,22 +257,28 @@ fun MainScreenContent(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Main Song Library View
-            SongsScreen(
-                tracks = tracks,
-                currentTrack = playbackState.currentTrack,
-                isPlaying = playbackState.isPlaying,
-                isDarkMode = isDarkMode,
-                hasPermissions = hasPermissions,
-                favoriteTrackIds = favoriteTrackIds,
-                playbackSpeed = soundSettings.playbackSpeed,
-                onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
-                onToggleDarkMode = { viewModel.toggleDarkMode() },
-                onRequestPermissions = onRequestPermissions,
-                onPlayTrack = { tr, list -> viewModel.playTrack(tr, list) },
-                onToggleFavorite = { viewModel.toggleFavorite(it) },
-                onOpenAddSong = { viewModel.openAddSongDialog() }
-            )
+            when (currentScreen) {
+                AppScreen.SONGS -> {
+                    SongsScreen(
+                        tracks = tracks,
+                        currentTrack = playbackState.currentTrack,
+                        isPlaying = playbackState.isPlaying,
+                        isDarkMode = isDarkMode,
+                        hasPermissions = hasPermissions,
+                        favoriteTrackIds = favoriteTrackIds,
+                        playbackSpeed = soundSettings.playbackSpeed,
+                        onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
+                        onToggleDarkMode = { viewModel.toggleDarkMode() },
+                        onRequestPermissions = onRequestPermissions,
+                        onPlayTrack = { tr, list -> viewModel.playTrack(tr, list) },
+                        onToggleFavorite = { viewModel.toggleFavorite(it) },
+                        onOpenAddSong = { viewModel.openAddSongDialog() }
+                    )
+                }
+                AppScreen.SETTINGS -> {
+                    SettingsScreen()
+                }
+            }
 
             // Fullscreen Player Modal with Rotating Vinyl Disc & Sleeve Folder (fast & snappy navigation)
             AnimatedVisibility(

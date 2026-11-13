@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 enum class AppScreen {
-    SONGS, SOUND_SETTINGS
+    SONGS, SETTINGS
 }
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
