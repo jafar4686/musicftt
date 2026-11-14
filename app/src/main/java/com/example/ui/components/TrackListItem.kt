@@ -96,7 +96,13 @@ fun TrackListItem(
                         Icon(imageVector = Icons.Default.Videocam, contentDescription = null, tint = CaramelGold, modifier = Modifier.size(12.dp))
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
+                PlayCountBadge(
+                    playCount = track.playCount,
+                    isCurrent = isCurrentTrack,
+                    trackId = "list_${track.id}"
+                )
+                Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = "${track.artist} • ${track.durationFormatted}",
                     fontSize = 11.sp,

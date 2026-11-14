@@ -10,9 +10,11 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import com.example.model.AnimatedArtStyle
+import com.example.model.AppThemeMode
 import com.example.model.DownloadItem
 import com.example.model.DownloadStatus
 import com.example.model.Playlist
+import com.example.model.ThemeTimerSettings
 import com.example.model.Track
 import com.example.model.UserProfile
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +37,8 @@ import java.util.regex.Pattern
 
 class MusicRepository(private val context: Context) {
 
+    private val prefs = context.getSharedPreferences("asd_music_prefs", Context.MODE_PRIVATE)
+    private val playCountsMap = mutableMapOf<String, Int>()
     private val scope = CoroutineScope(Dispatchers.IO)
     private val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
     private val metadataFile = File(context.filesDir, "downloaded_tracks_metadata.json")
@@ -86,7 +90,11 @@ class MusicRepository(private val context: Context) {
     )
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
 
+    private val _themeTimerSettings = MutableStateFlow(loadThemeTimerSettings())
+    val themeTimerSettings: StateFlow<ThemeTimerSettings> = _themeTimerSettings.asStateFlow()
+
     init {
+        loadPlayCounts()
         // Automatically scan existing downloaded tracks in internal storage
         loadOfflineCache()
         // Attempt to scan device MediaStore songs if permissions are granted
@@ -94,6 +102,117 @@ class MusicRepository(private val context: Context) {
         if (scanned == 0) {
             ensureStarterTracksIfEmpty()
         }
+    }
+
+    private fun loadThemeTimerSettings(): ThemeTimerSettings {
+        return ThemeTimerSettings(
+            isAutoTimerEnabled = prefs.getBoolean("auto_theme_timer_enabled", false),
+            morningStartHour = prefs.getInt("morning_start_hour", 6),
+            morningStartMinute = prefs.getInt("morning_start_minute", 0),
+            dayStartHour = prefs.getInt("day_start_hour", 9),
+            dayStartMinute = prefs.getInt("day_start_minute", 0),
+            nightStartHour = prefs.getInt("night_start_hour", 19),
+            nightStartMinute = prefs.getInt("night_start_minute", 0)
+        )
+    }
+
+    fun updateThemeTimerSettings(settings: ThemeTimerSettings) {
+        _themeTimerSettings.value = settings
+        prefs.edit()
+            .putBoolean("auto_theme_timer_enabled", settings.isAutoTimerEnabled)
+            .putInt("morning_start_hour", settings.morningStartHour)
+            .putInt("morning_start_minute", settings.morningStartMinute)
+            .putInt("day_start_hour", settings.dayStartHour)
+            .putInt("day_start_minute", settings.dayStartMinute)
+            .putInt("night_start_hour", settings.nightStartHour)
+            .putInt("night_start_minute", settings.nightStartMinute)
+            .apply()
+    }
+
+    fun saveManualThemeMode(mode: AppThemeMode) {
+        prefs.edit()
+            .putString("manual_theme_mode", mode.name)
+            .putBoolean("manual_dark_mode", mode == AppThemeMode.DARK)
+            .apply()
+    }
+
+    fun loadManualThemeMode(): AppThemeMode {
+        val savedName = prefs.getString("manual_theme_mode", null)
+        if (savedName != null) {
+            return AppThemeMode.entries.firstOrNull { it.name == savedName } ?: AppThemeMode.DAY
+        }
+        return if (prefs.getBoolean("manual_dark_mode", false)) AppThemeMode.DARK else AppThemeMode.DAY
+    }
+
+    fun saveManualDarkMode(isDark: Boolean) {
+        saveManualThemeMode(if (isDark) AppThemeMode.DARK else AppThemeMode.DAY)
+    }
+
+    fun loadManualDarkMode(): Boolean = loadManualThemeMode() == AppThemeMode.DARK
+
+    private fun loadPlayCounts() {
+        try {
+            val raw = prefs.getString("track_play_counts_json", null)
+            if (!raw.isNullOrBlank()) {
+                val json = JSONObject(raw)
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    playCountsMap[k] = json.optInt(k, 0).coerceAtLeast(0)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "loadPlayCounts: ${e.message}")
+        }
+    }
+
+    private fun savePlayCounts() {
+        try {
+            val json = JSONObject()
+            synchronized(playCountsMap) {
+                playCountsMap.forEach { (k, v) -> json.put(k, v) }
+            }
+            prefs.edit().putString("track_play_counts_json", json.toString()).apply()
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "savePlayCounts: ${e.message}")
+        }
+    }
+
+    private fun getSavedPlayCount(trackId: String, title: String): Int {
+        synchronized(playCountsMap) {
+            val byId = playCountsMap[trackId]
+            if (byId != null) return byId
+            val titleKey = "title:${title.lowercase().trim()}"
+            return playCountsMap[titleKey] ?: 0
+        }
+    }
+
+    fun incrementPlayCount(trackId: String): Int {
+        val track = _tracks.value.firstOrNull { it.id == trackId }
+        val newCount = synchronized(playCountsMap) {
+            val current = if (track != null) {
+                maxOf(track.playCount, getSavedPlayCount(trackId, track.title))
+            } else {
+                playCountsMap[trackId] ?: 0
+            }
+            val updated = current + 1
+            playCountsMap[trackId] = updated
+            if (track != null) {
+                playCountsMap["title:${track.title.lowercase().trim()}"] = updated
+            }
+            updated
+        }
+        savePlayCounts()
+
+        _tracks.update { list ->
+            list.map { if (it.id == trackId) it.copy(playCount = newCount) else it }
+        }
+        _userPlaylists.update { playlists ->
+            playlists.map { pl ->
+                pl.copy(tracks = pl.tracks.map { if (it.id == trackId) it.copy(playCount = newCount) else it })
+            }
+        }
+        return newCount
     }
 
     private fun ensureStarterTracksIfEmpty() {
@@ -108,7 +227,8 @@ class MusicRepository(private val context: Context) {
                     genre = "Acoustic",
                     isDownloaded = true,
                     localFilePath = null,
-                    animatedStyle = AnimatedArtStyle.VINYL
+                    animatedStyle = AnimatedArtStyle.VINYL,
+                    playCount = getSavedPlayCount("asd_starter_1", "Asd Acoustic Melody")
                 ),
                 Track(
                     id = "asd_starter_2",
@@ -119,7 +239,8 @@ class MusicRepository(private val context: Context) {
                     genre = "Vinyl Groove",
                     isDownloaded = true,
                     localFilePath = null,
-                    animatedStyle = AnimatedArtStyle.VINYL
+                    animatedStyle = AnimatedArtStyle.VINYL,
+                    playCount = getSavedPlayCount("asd_starter_2", "Vinyl Groove Anthem")
                 ),
                 Track(
                     id = "asd_starter_3",
@@ -130,7 +251,8 @@ class MusicRepository(private val context: Context) {
                     genre = "Acoustic Chill",
                     isDownloaded = true,
                     localFilePath = null,
-                    animatedStyle = AnimatedArtStyle.VINYL
+                    animatedStyle = AnimatedArtStyle.VINYL,
+                    playCount = getSavedPlayCount("asd_starter_3", "Sunset Rhythm")
                 )
             )
             _tracks.value = starters
@@ -151,9 +273,15 @@ class MusicRepository(private val context: Context) {
                         val filePath = obj.optString("localFilePath")
                         val file = if (filePath.isNotBlank()) File(filePath) else null
                         if (file != null && file.exists() && file.length() > 512) {
+                            val trackId = obj.getString("id")
+                            val trackTitle = obj.getString("title")
+                            val persistedCount = maxOf(
+                                obj.optInt("playCount", 0),
+                                getSavedPlayCount(trackId, trackTitle)
+                            )
                             val track = Track(
-                                id = obj.getString("id"),
-                                title = obj.getString("title"),
+                                id = trackId,
+                                title = trackTitle,
                                 artist = obj.getString("artist"),
                                 album = obj.optString("album", "ASD Downloads"),
                                 durationSeconds = obj.optInt("durationSeconds", 180),
@@ -163,7 +291,8 @@ class MusicRepository(private val context: Context) {
                                 isDownloaded = true,
                                 sourceUrl = obj.optString("sourceUrl").ifBlank { null },
                                 localFilePath = filePath,
-                                animatedStyle = AnimatedArtStyle.VINYL
+                                animatedStyle = AnimatedArtStyle.VINYL,
+                                playCount = persistedCount
                             )
                             cachedTracks.add(track)
                         }
@@ -190,9 +319,10 @@ class MusicRepository(private val context: Context) {
 
                 val coverFile = File(downloadsDir, "${file.nameWithoutExtension.substringBefore("_")}_cover.jpg")
                 val coverPath = if (coverFile.exists()) coverFile.absolutePath else null
+                val cacheId = "cache_${file.name.hashCode()}"
 
                 val track = Track(
-                    id = "cache_${file.name.hashCode()}",
+                    id = cacheId,
                     title = cleanTitle,
                     artist = "Saved Song",
                     album = "Device Music",
@@ -202,7 +332,8 @@ class MusicRepository(private val context: Context) {
                     isDownloaded = true,
                     isVideo = file.name.endsWith(".mp4"),
                     localFilePath = file.absolutePath,
-                    animatedStyle = AnimatedArtStyle.VINYL
+                    animatedStyle = AnimatedArtStyle.VINYL,
+                    playCount = getSavedPlayCount(cacheId, cleanTitle)
                 )
                 cachedTracks.add(track)
             }
@@ -273,9 +404,10 @@ class MusicRepository(private val context: Context) {
                         albumId
                     ).toString()
 
+                    val devId = "device_$id"
                     deviceTracks.add(
                         Track(
-                            id = "device_$id",
+                            id = devId,
                             title = title,
                             artist = if (artist == "<unknown>") "Local Artist" else artist,
                             album = album,
@@ -284,7 +416,8 @@ class MusicRepository(private val context: Context) {
                             coverUrl = albumArtUri,
                             isDownloaded = true,
                             localFilePath = dataPath ?: uri.toString(),
-                            animatedStyle = AnimatedArtStyle.VINYL
+                            animatedStyle = AnimatedArtStyle.VINYL,
+                            playCount = getSavedPlayCount(devId, title)
                         )
                     )
                     foundCount++
@@ -1373,6 +1506,7 @@ class MusicRepository(private val context: Context) {
                     put("isVideo", track.isVideo)
                     put("sourceUrl", track.sourceUrl ?: "")
                     put("localFilePath", track.localFilePath ?: "")
+                    put("playCount", track.playCount)
                 }
                 arr.put(obj)
             }

@@ -138,4 +138,83 @@ class ExampleRobolectricTest {
       com.example.data.LinkDetector.detectSource("https://example.com/audio/song.mp3")
     )
   }
+
+  @Test
+  fun `play count increments only on full beginning-to-end playback and rejects advancing`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val repository = MusicRepository(context)
+    PlaybackManager.initialize(context)
+
+    val firstTrack = repository.tracks.value.first()
+    val initialCount = firstTrack.playCount
+    var recordedId: String? = null
+    PlaybackManager.setOnValidTrackPlayedListener { trackId ->
+      recordedId = trackId
+      repository.incrementPlayCount(trackId)
+    }
+
+    // 1. Play cleanly from 0 to 10_000ms in 500ms steps -> MUST count
+    val durationMs = 10_000L
+    PlaybackManager.playTrack(firstTrack.copy(durationSeconds = 10), listOf(firstTrack), context)
+    for (pos in 500L..10_000L step 500L) {
+      PlaybackManager.recordPlaybackProgress(pos, durationMs, 500L)
+    }
+    assertTrue(PlaybackManager.evaluateValidCompletionAndNotify(durationMs))
+    assertEquals(firstTrack.id, recordedId)
+    assertEquals(initialCount + 1, repository.tracks.value.first { it.id == firstTrack.id }.playCount)
+
+    // 2. Play from 0 to 1_000ms, then seek forward ("in advance") to 9_000ms and finish -> MUST NOT count
+    PlaybackManager.playTrack(firstTrack.copy(durationSeconds = 10), listOf(firstTrack), context)
+    PlaybackManager.recordPlaybackProgress(500L, durationMs, 500L)
+    PlaybackManager.recordPlaybackProgress(1_000L, durationMs, 500L)
+    PlaybackManager.seekTo(9_000L)
+    PlaybackManager.recordPlaybackProgress(9_500L, durationMs, 500L)
+    PlaybackManager.recordPlaybackProgress(10_000L, durationMs, 500L)
+    assertEquals(false, PlaybackManager.evaluateValidCompletionAndNotify(durationMs))
+    assertEquals(initialCount + 1, repository.tracks.value.first { it.id == firstTrack.id }.playCount)
+
+    // 3. After advancing, seek back to 0ms (restart from beginning) and play cleanly to end -> MUST count
+    PlaybackManager.seekTo(0L)
+    for (pos in 500L..10_000L step 500L) {
+      PlaybackManager.recordPlaybackProgress(pos, durationMs, 500L)
+    }
+    assertTrue(PlaybackManager.evaluateValidCompletionAndNotify(durationMs))
+    assertEquals(initialCount + 2, repository.tracks.value.first { it.id == firstTrack.id }.playCount)
+
+    PlaybackManager.setOnValidTrackPlayedListener(null)
+  }
+
+  @Test
+  fun `night and day timer schedule evaluates morning day and dark modes correctly`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val repository = MusicRepository(context)
+
+    val schedule = com.example.model.ThemeTimerSettings(
+      isAutoTimerEnabled = true,
+      morningStartHour = 6,
+      morningStartMinute = 0,
+      dayStartHour = 9,
+      dayStartMinute = 0,
+      nightStartHour = 19,
+      nightStartMinute = 30
+    )
+    repository.updateThemeTimerSettings(schedule)
+
+    val loaded = repository.themeTimerSettings.value
+    assertTrue(loaded.isAutoTimerEnabled)
+    assertEquals(6, loaded.morningStartHour)
+    assertEquals(9, loaded.dayStartHour)
+    assertEquals(19, loaded.nightStartHour)
+    assertEquals(30, loaded.nightStartMinute)
+
+    // Morning check (7:15 AM -> MORNING)
+    assertEquals(com.example.model.AppThemeMode.MORNING, loaded.resolveThemeMode(7, 15))
+    // Day check (12:00 PM -> DAY)
+    assertEquals(com.example.model.AppThemeMode.DAY, loaded.resolveThemeMode(12, 0))
+    // Evening boundary check (7:30 PM -> DARK)
+    assertEquals(com.example.model.AppThemeMode.DARK, loaded.resolveThemeMode(19, 30))
+    // Late night wrap-around check (2:15 AM -> DARK)
+    assertEquals(com.example.model.AppThemeMode.DARK, loaded.resolveThemeMode(2, 15))
+    assertEquals(true, loaded.isNightTime(2, 15))
+  }
 }

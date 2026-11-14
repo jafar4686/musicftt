@@ -37,6 +37,86 @@ object PlaybackManager {
     private var appContext: Context? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // Strict beginning-to-end play tracking (disqualifies advancing/seeking forward)
+    private var activeSessionTrackId: String? = null
+    private var startedFromBeginning: Boolean = false
+    private var wasAdvancedForward: Boolean = false
+    private var lastNaturalPlaybackMs: Long = 0L
+    private var accumulatedPlayedMs: Long = 0L
+    private var lastTickWallTimeMs: Long = 0L
+    private var onValidTrackPlayedListener: ((String) -> Unit)? = null
+
+    fun setOnValidTrackPlayedListener(listener: ((String) -> Unit)?) {
+        onValidTrackPlayedListener = listener
+    }
+
+    fun updateCurrentTrackPlayCount(trackId: String, newPlayCount: Int) {
+        _playbackState.update { state ->
+            val cur = state.currentTrack
+            if (cur != null && cur.id == trackId) {
+                state.copy(currentTrack = cur.copy(playCount = newPlayCount))
+            } else {
+                state
+            }
+        }
+    }
+
+    internal fun resetPlaySession(trackId: String?) {
+        activeSessionTrackId = trackId
+        startedFromBeginning = trackId != null
+        wasAdvancedForward = false
+        lastNaturalPlaybackMs = 0L
+        accumulatedPlayedMs = 0L
+        lastTickWallTimeMs = System.currentTimeMillis()
+    }
+
+    internal fun recordPlaybackProgress(
+        currentPosMs: Long,
+        effectiveDurationMs: Long,
+        wallDeltaMs: Long
+    ) {
+        val trackId = _playbackState.value.currentTrack?.id ?: return
+        if (activeSessionTrackId != trackId) {
+            resetPlaySession(trackId)
+        }
+        val speed = _soundSettings.value.playbackSpeed.coerceIn(0.25f, 3.0f)
+        val maxExpectedStep = (wallDeltaMs * speed).toLong() + 1500L
+        val delta = currentPosMs - lastNaturalPlaybackMs
+        if (delta in 1L..maxExpectedStep) {
+            accumulatedPlayedMs += delta
+            lastNaturalPlaybackMs = currentPosMs
+        } else if (delta > maxExpectedStep) {
+            wasAdvancedForward = true
+        }
+        if (effectiveDurationMs > 0L && lastNaturalPlaybackMs > effectiveDurationMs) {
+            lastNaturalPlaybackMs = effectiveDurationMs
+        }
+    }
+
+    internal fun evaluateValidCompletionAndNotify(overrideDurationMs: Long? = null): Boolean {
+        val completedTrack = _playbackState.value.currentTrack ?: return false
+        if (activeSessionTrackId != completedTrack.id) return false
+        if (!startedFromBeginning || wasAdvancedForward) return false
+
+        val engineDur = audioEngine?.durationMs ?: 0L
+        val effectiveDur = overrideDurationMs ?: if (engineDur > 0L) engineDur else _playbackState.value.durationMs
+        if (effectiveDur <= 0L) return false
+
+        // Account for the small interval between the final progress poll and OnCompletionListener firing
+        val nearEndThreshold = (effectiveDur - 2500L).coerceAtLeast((effectiveDur * 0.85).toLong())
+        if (lastNaturalPlaybackMs < nearEndThreshold && accumulatedPlayedMs < (effectiveDur * 0.85).toLong()) {
+            return false
+        }
+
+        val tailDelta = (effectiveDur - lastNaturalPlaybackMs).coerceIn(0L, 2500L)
+        val totalPlayed = accumulatedPlayedMs + tailDelta
+        val qualifies = totalPlayed >= (effectiveDur * 0.85).toLong()
+        if (qualifies) {
+            onValidTrackPlayedListener?.invoke(completedTrack.id)
+        }
+        return qualifies
+    }
+
     fun initialize(context: Context) {
         appContext = context.applicationContext
         if (audioEngine == null) {
@@ -58,8 +138,11 @@ object PlaybackManager {
 
     private fun handleTrackCompletion() {
         val state = _playbackState.value
+        evaluateValidCompletionAndNotify()
+
         when (state.repeatMode) {
             RepeatMode.ONE -> {
+                resetPlaySession(state.currentTrack?.id)
                 seekTo(0L)
                 play(appContext)
             }
@@ -72,6 +155,7 @@ object PlaybackManager {
                 } else {
                     pause(appContext)
                     _playbackState.update { it.copy(currentPositionMs = 0L) }
+                    resetPlaySession(state.currentTrack?.id)
                 }
             }
         }
@@ -83,6 +167,7 @@ object PlaybackManager {
         currentIndex = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
         if (tracks.isNotEmpty()) {
             val track = tracks[currentIndex]
+            resetPlaySession(track.id)
             _playbackState.update {
                 it.copy(
                     currentTrack = track,
@@ -115,6 +200,7 @@ object PlaybackManager {
             }
         }
 
+        resetPlaySession(track.id)
         _playbackState.update {
             it.copy(
                 currentTrack = track,
@@ -215,6 +301,7 @@ object PlaybackManager {
         }
         currentIndex = nextIndex
         val nextTrack = currentPlaylist[currentIndex]
+        resetPlaySession(nextTrack.id)
         _playbackState.update {
             it.copy(
                 currentTrack = nextTrack,
@@ -235,6 +322,7 @@ object PlaybackManager {
         val prevIndex = if (currentIndex - 1 < 0) currentPlaylist.size - 1 else currentIndex - 1
         currentIndex = prevIndex
         val prevTrack = currentPlaylist[currentIndex]
+        resetPlaySession(prevTrack.id)
         _playbackState.update {
             it.copy(
                 currentTrack = prevTrack,
@@ -247,9 +335,26 @@ object PlaybackManager {
     }
 
     fun seekTo(positionMs: Long) {
-        audioEngine?.seekTo(positionMs)
+        val clampedPos = positionMs.coerceIn(0L, _playbackState.value.durationMs.coerceAtLeast(0L))
+        if (clampedPos <= 1500L) {
+            // Restarted cleanly from the beginning
+            startedFromBeginning = true
+            wasAdvancedForward = false
+            lastNaturalPlaybackMs = clampedPos
+            accumulatedPlayedMs = 0L
+            lastTickWallTimeMs = System.currentTimeMillis()
+        } else if (clampedPos > lastNaturalPlaybackMs + 1000L) {
+            // Song was played in advance (seeked forward) -> will NOT count
+            wasAdvancedForward = true
+        } else {
+            // Rewound backward within already played audio
+            lastNaturalPlaybackMs = clampedPos
+            lastTickWallTimeMs = System.currentTimeMillis()
+        }
+
+        audioEngine?.seekTo(clampedPos)
         _playbackState.update {
-            it.copy(currentPositionMs = positionMs.coerceIn(0L, it.durationMs))
+            it.copy(currentPositionMs = clampedPos.coerceIn(0L, it.durationMs))
         }
     }
 
@@ -341,20 +446,35 @@ object PlaybackManager {
 
     private fun startProgressTracking() {
         progressJob?.cancel()
+        lastTickWallTimeMs = System.currentTimeMillis()
         progressJob = scope.launch {
             while (isActive && _playbackState.value.isPlaying) {
-                delay(300)
+                delay(250)
+                val nowWall = System.currentTimeMillis()
+                val wallDelta = (nowWall - lastTickWallTimeMs).coerceIn(0L, 2000L)
+                lastTickWallTimeMs = nowWall
+
                 val engine = audioEngine
                 val realPos = engine?.currentPositionMs ?: 0L
                 val realDur = engine?.durationMs ?: 0L
 
+                var updatedPos = 0L
+                var updatedDur = 0L
                 _playbackState.update { state ->
                     val effectiveDur = if (realDur > 0L) realDur else state.durationMs
-                    val effectivePos = if (realPos > 0L) realPos else (state.currentPositionMs + 300L)
+                    val effectivePos = if (realPos > 0L) realPos else {
+                        val step = (wallDelta * _soundSettings.value.playbackSpeed).toLong().coerceAtLeast(250L)
+                        state.currentPositionMs + step
+                    }
+                    updatedDur = effectiveDur
+                    updatedPos = effectivePos.coerceAtMost(effectiveDur)
                     state.copy(
-                        currentPositionMs = effectivePos.coerceAtMost(effectiveDur),
+                        currentPositionMs = updatedPos,
                         durationMs = effectiveDur
                     )
+                }
+                if (realPos > 0L || updatedPos > 0L) {
+                    recordPlaybackProgress(updatedPos, updatedDur, wallDelta)
                 }
             }
         }

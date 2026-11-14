@@ -5,6 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.example.model.AppThemeMode
 
 private val PureWhiteColorScheme = lightColorScheme(
     primary = PlusBlue,
@@ -25,6 +26,27 @@ private val PureWhiteColorScheme = lightColorScheme(
     onSurfaceVariant = TextSecondaryLight,
     outline = SurfaceBorderLight,
     outlineVariant = Color(0xFFF3F4F6)
+)
+
+private val WarmMorningColorScheme = lightColorScheme(
+    primary = MorningAmber,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFEF3C7),
+    onPrimaryContainer = Color(0xFF92400E),
+    secondary = PlusBlue,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE0F2FE),
+    onSecondaryContainer = PlusBlue,
+    tertiary = AccentOrange,
+    onTertiary = Color.White,
+    background = MorningCreamBg,
+    onBackground = MorningTextPrimary,
+    surface = MorningSurface,
+    onSurface = MorningTextPrimary,
+    surfaceVariant = MorningSurfaceElevated,
+    onSurfaceVariant = MorningTextSecondary,
+    outline = MorningBorder,
+    outlineVariant = Color(0xFFFAF0DC)
 )
 
 private val SleekDarkColorScheme = darkColorScheme(
@@ -50,11 +72,17 @@ private val SleekDarkColorScheme = darkColorScheme(
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = false, // Default is pure white as requested!
+    themeMode: AppThemeMode = AppThemeMode.DAY,
+    darkTheme: Boolean = false,
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) SleekDarkColorScheme else PureWhiteColorScheme
+    val effectiveMode = if (darkTheme && themeMode == AppThemeMode.DAY) AppThemeMode.DARK else themeMode
+    val colorScheme = when (effectiveMode) {
+        AppThemeMode.DAY -> PureWhiteColorScheme
+        AppThemeMode.MORNING -> WarmMorningColorScheme
+        AppThemeMode.DARK -> SleekDarkColorScheme
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,

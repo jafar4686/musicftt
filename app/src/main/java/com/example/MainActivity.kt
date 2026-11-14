@@ -35,11 +35,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -68,9 +72,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val viewModel: MusicViewModel = viewModel()
-            val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
-            MyApplicationTheme(darkTheme = isDarkMode) {
+            MyApplicationTheme(themeMode = themeMode) {
                 val context = LocalContext.current
 
                 var isSplashActive by remember { mutableStateOf(true) }
@@ -132,7 +136,6 @@ class MainActivity : ComponentActivity() {
                 } else {
                     MainScreenContent(
                         viewModel = viewModel,
-                        isDarkMode = isDarkMode,
                         hasPermissions = hasPermissions,
                         onRequestPermissions = { requestRequiredPermissions() }
                     )
@@ -145,7 +148,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreenContent(
     viewModel: MusicViewModel,
-    isDarkMode: Boolean,
     hasPermissions: Boolean,
     onRequestPermissions: () -> Unit
 ) {
@@ -156,6 +158,19 @@ fun MainScreenContent(
     val favoriteTrackIds by viewModel.favoriteTrackIds.collectAsStateWithLifecycle()
     val showAddSongDialog by viewModel.showAddSongDialog.collectAsStateWithLifecycle()
     val snackMessage by viewModel.snackMessage.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val themeTimerSettings by viewModel.themeTimerSettings.collectAsStateWithLifecycle()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.evaluateThemeTimerNow(forceApply = false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -263,12 +278,10 @@ fun MainScreenContent(
                         tracks = tracks,
                         currentTrack = playbackState.currentTrack,
                         isPlaying = playbackState.isPlaying,
-                        isDarkMode = isDarkMode,
                         hasPermissions = hasPermissions,
                         favoriteTrackIds = favoriteTrackIds,
                         playbackSpeed = soundSettings.playbackSpeed,
                         onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
-                        onToggleDarkMode = { viewModel.toggleDarkMode() },
                         onRequestPermissions = onRequestPermissions,
                         onPlayTrack = { tr, list -> viewModel.playTrack(tr, list) },
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -276,7 +289,15 @@ fun MainScreenContent(
                     )
                 }
                 AppScreen.SETTINGS -> {
-                    SettingsScreen()
+                    SettingsScreen(
+                        themeMode = themeMode,
+                        themeTimerSettings = themeTimerSettings,
+                        onSelectThemeMode = { viewModel.setThemeMode(it) },
+                        onSetAutoTimerEnabled = { viewModel.setAutoThemeTimerEnabled(it) },
+                        onSetMorningStartTime = { h, m -> viewModel.setMorningStartTime(h, m) },
+                        onSetDayStartTime = { h, m -> viewModel.setDayStartTime(h, m) },
+                        onSetNightStartTime = { h, m -> viewModel.setNightStartTime(h, m) }
+                    )
                 }
             }
 

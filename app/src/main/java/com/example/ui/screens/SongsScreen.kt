@@ -27,10 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
@@ -63,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.Track
+import com.example.ui.components.PlayCountBadge
 import com.example.ui.components.SongCoverArtView
 import com.example.ui.components.SpeedAdjustmentBar
 import com.example.ui.components.SpeedIndicatorButton
@@ -71,7 +70,7 @@ import com.example.ui.theme.PlusViolet
 
 /**
  * High-performance 90 FPS SongsScreen for ASD MUSIC.
- * - Top bar has ONLY ASD MUSIC branding and Dark/Light mode toggle (no reload or rotation icons)
+ * - Top bar has ONLY ASD MUSIC branding (theme switching lives in Settings)
  * - Mountain visualizer wave removed to eliminate all lag
  * - Songs keep their sequence numbers AND display authentic album cover art
  * - Transparent speed indicator with inline slider bar (no extra screens)
@@ -81,12 +80,10 @@ fun SongsScreen(
     tracks: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
-    isDarkMode: Boolean,
     hasPermissions: Boolean,
     favoriteTrackIds: Set<String>,
     playbackSpeed: Float = 1.0f,
     onSetPlaybackSpeed: (Float) -> Unit = {},
-    onToggleDarkMode: () -> Unit,
     onRequestPermissions: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -118,47 +115,28 @@ fun SongsScreen(
                     .statusBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                // Top Bar: ASD MUSIC Logo & Name on Left, ONLY Dark/Light Mode on Right
+                // Top Bar: ASD MUSIC Logo & Name (theme switching moved to Settings)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.Start,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(
-                            painter = painterResource(id = R.drawable.asd_music_logo),
-                            contentDescription = "ASD MUSIC Logo",
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .border(1.5.dp, PlusBlue, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "ASD MUSIC",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            letterSpacing = (-0.5).sp
-                        )
-                    }
-
-                    // ONLY Dark and Light Mode toggle option (reload and rotation icons deleted per request)
-                    IconButton(
-                        onClick = onToggleDarkMode,
+                    Image(
+                        painter = painterResource(id = R.drawable.asd_music_logo),
+                        contentDescription = "ASD MUSIC Logo",
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .testTag("toggle_dark_mode_button")
-                    ) {
-                        Icon(
-                            imageVector = if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = "Toggle Night and Day Mode",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                            .border(1.5.dp, PlusBlue, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "ASD MUSIC",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        letterSpacing = (-0.5).sp
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -470,7 +448,7 @@ fun SongRowItem(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // 3. Title & Artist
+            // 3. Title, Play Count under Title, & Artist
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
@@ -480,7 +458,13 @@ fun SongRowItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
+                PlayCountBadge(
+                    playCount = track.playCount,
+                    isCurrent = isCurrent,
+                    trackId = track.id
+                )
+                Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = "${track.artist} • ${track.album}",
                     style = MaterialTheme.typography.bodySmall,

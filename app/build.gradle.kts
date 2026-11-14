@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.asdmusic.kxbvqz"
     minSdk = 24
     targetSdk = 34
-    versionCode = 12
-    versionName = "4.7.0"
+    versionCode = 13
+    versionName = "4.8"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

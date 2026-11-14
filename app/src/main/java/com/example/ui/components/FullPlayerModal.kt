@@ -175,7 +175,13 @@ fun FullPlayerModal(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PlayCountBadge(
+                        playCount = track.playCount,
+                        isCurrent = true,
+                        trackId = "full_${track.id}"
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "${track.artist} • ${track.album}",
                         fontSize = 13.sp,

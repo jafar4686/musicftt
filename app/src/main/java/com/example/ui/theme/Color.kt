@@ -19,6 +19,15 @@ val PlusCyan = Color(0xFF06B6D4)
 val AccentOrange = Color(0xFFF97316)
 val AccentGreen = Color(0xFF10B981)
 
+// Morning Theme Colors (Warm Sunrise)
+val MorningCreamBg = Color(0xFFFFFBF2)
+val MorningSurface = Color(0xFFFFF5E1)
+val MorningSurfaceElevated = Color(0xFFFEF0D1)
+val MorningBorder = Color(0xFFF2DEC0)
+val MorningAmber = Color(0xFFD97706)
+val MorningTextPrimary = Color(0xFF23190E)
+val MorningTextSecondary = Color(0xFF6B5A45)
+
 // Dark Theme Colors
 val PureDark = Color(0xFF0D0F12)
 val DarkSurface = Color(0xFF161922)
