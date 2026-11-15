@@ -286,4 +286,53 @@ class ExampleRobolectricTest {
     assertNotNull(service)
     controller.destroy()
   }
+
+  @Test
+  fun `room protocol computes audio payload hash and synced playback uses transferred file`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    PlaybackManager.initialize(context)
+
+    val tempSong = java.io.File(context.cacheDir, "host_shared_song.mp3").apply {
+      writeBytes(ByteArray(2048) { (it % 251).toByte() })
+    }
+    val hostTrack = com.example.model.Track(
+      id = "device_101",
+      title = "Host Exact Song",
+      artist = "Host Artist",
+      durationSeconds = 200,
+      localFilePath = tempSong.absolutePath
+    )
+
+    val payload = com.example.bluetooth.RoomProtocol.resolveTrackAudioPayload(context, hostTrack)
+    assertNotNull(payload)
+    assertEquals(2048L, payload!!.fileSize)
+    assertEquals("mp3", payload.fileExt)
+    assertEquals(64, payload.fileHash.length)
+
+    val syncJson = org.json.JSONObject(
+      com.example.bluetooth.RoomProtocol.encodeSyncPlay(
+        track = hostTrack,
+        positionMs = 0L,
+        speed = 1.0f,
+        isPlaying = true,
+        syncDelayMs = 240L,
+        fileHash = payload.fileHash,
+        fileSize = payload.fileSize,
+        fileExt = payload.fileExt
+      )
+    )
+    val parsed = com.example.bluetooth.RoomProtocol.parseSyncCommand(syncJson)
+    assertNotNull(parsed)
+    assertEquals(payload.fileHash, parsed?.fileHash)
+    assertEquals(2048L, parsed?.fileSize)
+    assertEquals("mp3", parsed?.fileExt)
+
+    // Verify PlaybackManager reloads when localFilePath updates for same track ID
+    val syncedTrack = hostTrack.copy(id = "room_sync_${payload.fileHash}", localFilePath = tempSong.absolutePath)
+    PlaybackManager.applySyncedTrackPlayback(syncedTrack, 0L, 1.0f, true, context)
+    assertEquals(tempSong.absolutePath, PlaybackManager.playbackState.value.currentTrack?.localFilePath)
+    assertEquals("Host Exact Song", PlaybackManager.playbackState.value.currentTrack?.title)
+
+    tempSong.delete()
+  }
 }

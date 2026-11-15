@@ -13,6 +13,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.model.BluetoothRoomState
@@ -21,6 +22,7 @@ import com.example.model.RoomPhase
 import com.example.model.RoomRole
 import com.example.model.RoomSyncCommand
 import com.example.model.Track
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,28 +35,36 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedOutputStream
 import java.io.BufferedReader
 import java.io.BufferedWriter
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
 class BluetoothRoomManager(
     private val context: Context,
     private val onGuestSyncCommand: (RoomSyncCommand) -> Unit = {},
     private val onGuestRoomStarted: () -> Unit = {},
-    private val onRoomEnded: (String) -> Unit = {}
+    private val onRoomEnded: (String) -> Unit = {},
+    private val onFindLocalFileByHash: (fileHash: String, fileSize: Long, title: String?) -> String? = { _, _, _ -> null }
 ) {
 
     companion object {
         private const val TAG = "BluetoothRoomManager"
         const val ROOM_SERVICE_NAME = "ASDMusicRoom"
         val ROOM_UUID: UUID = UUID.fromString("8a9d5c10-4b22-4f88-9c31-6e7b31a5d480")
+        val RoomProtocol: com.example.bluetooth.RoomProtocol = com.example.bluetooth.RoomProtocol
 
         fun generateFiveDigitCode(): String {
             return Random.nextInt(10_000, 100_000).toString()
@@ -83,160 +93,28 @@ class BluetoothRoomManager(
         }
     }
 
-    object RoomProtocol {
-        fun encodeJoin(code: String, memberName: String, memberId: String): String {
-            return JSONObject().apply {
-                put("type", "JOIN")
-                put("code", code)
-                put("name", memberName)
-                put("id", memberId)
-            }.toString()
-        }
-
-        fun encodeWelcome(code: String, phase: RoomPhase, members: List<RoomMember>): String {
-            return JSONObject().apply {
-                put("type", "WELCOME")
-                put("code", code)
-                put("phase", phase.name)
-                put("members", encodeMembersArray(members))
-            }.toString()
-        }
-
-        fun encodeReject(reason: String): String {
-            return JSONObject().apply {
-                put("type", "REJECT")
-                put("reason", reason)
-            }.toString()
-        }
-
-        fun encodeMembers(members: List<RoomMember>): String {
-            return JSONObject().apply {
-                put("type", "MEMBERS")
-                put("members", encodeMembersArray(members))
-            }.toString()
-        }
-
-        fun encodeStartRoom(): String {
-            return JSONObject().apply {
-                put("type", "START_ROOM")
-            }.toString()
-        }
-
-        fun encodeSyncPlay(
-            track: Track,
-            positionMs: Long,
-            speed: Float,
-            isPlaying: Boolean,
-            syncDelayMs: Long = 220L
-        ): String {
-            return JSONObject().apply {
-                put("type", "SYNC_PLAY")
-                put("trackId", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("album", track.album)
-                put("durationSeconds", track.durationSeconds)
-                put("sourceUrl", track.sourceUrl ?: "")
-                put("positionMs", positionMs.coerceAtLeast(0L))
-                put("speed", speed.toDouble())
-                put("isPlaying", isPlaying)
-                put("syncDelayMs", syncDelayMs)
-            }.toString()
-        }
-
-        fun encodeSyncPause(positionMs: Long): String {
-            return JSONObject().apply {
-                put("type", "SYNC_PAUSE")
-                put("positionMs", positionMs.coerceAtLeast(0L))
-            }.toString()
-        }
-
-        fun encodeSyncSeek(positionMs: Long, isPlaying: Boolean): String {
-            return JSONObject().apply {
-                put("type", "SYNC_SEEK")
-                put("positionMs", positionMs.coerceAtLeast(0L))
-                put("isPlaying", isPlaying)
-            }.toString()
-        }
-
-        fun encodeRoomClosed(reason: String): String {
-            return JSONObject().apply {
-                put("type", "ROOM_CLOSED")
-                put("reason", reason)
-            }.toString()
-        }
-
-        fun encodeMembersArray(members: List<RoomMember>): JSONArray {
-            val arr = JSONArray()
-            members.forEach { m ->
-                arr.put(
-                    JSONObject().apply {
-                        put("id", m.id)
-                        put("name", m.name)
-                        put("isHost", m.isHost)
-                        if (m.address != null) put("address", m.address)
-                    }
-                )
-            }
-            return arr
-        }
-
-        fun parseMembersArray(arr: JSONArray?): List<RoomMember> {
-            if (arr == null) return emptyList()
-            val result = mutableListOf<RoomMember>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: continue
-                result.add(
-                    RoomMember(
-                        id = obj.optString("id", "member_$i"),
-                        name = obj.optString("name", "Device ${i + 1}"),
-                        isHost = obj.optBoolean("isHost", false),
-                        address = obj.optString("address").ifBlank { null }
-                    )
-                )
-            }
-            return result
-        }
-
-        fun parseSyncCommand(json: JSONObject): RoomSyncCommand? {
-            return when (val type = json.optString("type")) {
-                "SYNC_PLAY" -> RoomSyncCommand(
-                    action = type,
-                    trackId = json.optString("trackId").ifBlank { null },
-                    title = json.optString("title").ifBlank { null },
-                    artist = json.optString("artist").ifBlank { null },
-                    album = json.optString("album").ifBlank { null },
-                    durationSeconds = json.optInt("durationSeconds", 180).coerceAtLeast(10),
-                    sourceUrl = json.optString("sourceUrl").ifBlank { null },
-                    positionMs = json.optLong("positionMs", 0L).coerceAtLeast(0L),
-                    speed = json.optDouble("speed", 1.0).toFloat().coerceIn(0.5f, 2.0f),
-                    isPlaying = json.optBoolean("isPlaying", true),
-                    syncDelayMs = json.optLong("syncDelayMs", 0L).coerceAtLeast(0L)
-                )
-                "SYNC_PAUSE" -> RoomSyncCommand(
-                    action = type,
-                    positionMs = json.optLong("positionMs", 0L).coerceAtLeast(0L),
-                    isPlaying = false
-                )
-                "SYNC_SEEK" -> RoomSyncCommand(
-                    action = type,
-                    positionMs = json.optLong("positionMs", 0L).coerceAtLeast(0L),
-                    isPlaying = json.optBoolean("isPlaying", true)
-                )
-                else -> null
-            }
-        }
-    }
-
     private data class ClientSession(
         val member: RoomMember,
         val socket: BluetoothSocket,
         val writer: BufferedWriter
     )
 
+    private data class IncomingFileState(
+        val transferId: String,
+        val fileHash: String,
+        val fileExt: String,
+        val expectedSize: Long,
+        val title: String,
+        val partFile: File,
+        val finalFile: File,
+        val output: BufferedOutputStream,
+        var bytesWritten: Long = 0L
+    )
+
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val localMemberId = "dev_${Build.MODEL.hashCode()}_${Random.nextInt(100, 999)}"
+    private val syncCacheDir = File(appContext.filesDir, "room_sync_cache").apply { mkdirs() }
 
     private val bluetoothAdapter: BluetoothAdapter? by lazy {
         val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -254,12 +132,24 @@ class BluetoothRoomManager(
 
     private var serverSocket: BluetoothServerSocket? = null
     private var hostAcceptJob: Job? = null
+    private var prepareTrackJob: Job? = null
+    private val transferSeq = AtomicLong(0L)
     private val hostClients = ConcurrentHashMap<String, ClientSession>()
+
+    @Volatile private var activeTransferId: String? = null
+    private val clientPrepSignals = ConcurrentHashMap<String, CompletableDeferred<Boolean>>() // true = READY, false = NEED_FILE
+    private val clientReadyAfterTransferSignals = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
+
     private var lastSyncedPlayCommand: RoomSyncCommand? = null
+    private var lastPreparedTrack: Track? = null
+    private var lastPreparedPayload: TrackAudioPayload? = null
 
     private var guestSocket: BluetoothSocket? = null
+    private var guestWriter: BufferedWriter? = null
     private var guestJoinJob: Job? = null
     private var discoveryReceiver: BroadcastReceiver? = null
+    private val syncedFilePaths = ConcurrentHashMap<String, String>()
+    private var incomingFile: IncomingFileState? = null
 
     fun refreshBluetoothStatus() {
         val supported = bluetoothAdapter != null
@@ -322,6 +212,9 @@ class BluetoothRoomManager(
                 members = listOf(hostMember),
                 isConnecting = false,
                 isDiscovering = false,
+                isTransferringTrack = false,
+                transferProgress = 0f,
+                transferTrackTitle = null,
                 statusMessage = "Room $code created. Waiting for devices to join...",
                 errorMessage = null,
                 currentSyncedTrackTitle = null
@@ -371,8 +264,8 @@ class BluetoothRoomManager(
     ) {
         var assignedClientId: String? = null
         try {
-            val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
-            val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8))
+            val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8), 65536)
+            val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8), 65536)
 
             val handshakeLine = withTimeoutOrNull(8_000L) {
                 reader.readLine()
@@ -385,18 +278,14 @@ class BluetoothRoomManager(
 
             val json = JSONObject(handshakeLine)
             if (json.optString("type") != "JOIN") {
-                writer.write(RoomProtocol.encodeReject("Unexpected handshake"))
-                writer.newLine()
-                writer.flush()
+                sendLineBlocking(writer, RoomProtocol.encodeReject("Unexpected handshake"))
                 socket.close()
                 return
             }
 
             val enteredCode = json.optString("code").trim()
             if (enteredCode != expectedCode) {
-                writer.write(RoomProtocol.encodeReject("Wrong 5-digit room code"))
-                writer.newLine()
-                writer.flush()
+                sendLineBlocking(writer, RoomProtocol.encodeReject("Wrong 5-digit room code"))
                 socket.close()
                 return
             }
@@ -433,47 +322,35 @@ class BluetoothRoomManager(
                 )
             }
 
-            // Send welcome + current member roster to this guest
             val currentPhase = _roomState.value.phase
-            writer.write(RoomProtocol.encodeWelcome(expectedCode, currentPhase, updatedMembers))
-            writer.newLine()
-            writer.flush()
+            sendLineBlocking(writer, RoomProtocol.encodeWelcome(expectedCode, currentPhase, updatedMembers))
 
-            // If host already started the room and is playing a track, sync late joiner too
+            // Broadcast updated member list to every other connected guest
+            broadcastLineToGuests(RoomProtocol.encodeMembers(updatedMembers), excludeId = guestId)
+
+            // If room is already PLAYING and has a current track, sync that real audio file to the late joiner
             if (currentPhase == RoomPhase.PLAYING) {
-                lastSyncedPlayCommand?.let { lastCmd ->
-                    val lateJson = JSONObject().apply {
-                        put("type", "SYNC_PLAY")
-                        put("trackId", lastCmd.trackId ?: "")
-                        put("title", lastCmd.title ?: "Shared Song")
-                        put("artist", lastCmd.artist ?: "Host")
-                        put("album", lastCmd.album ?: "ASD MUSIC")
-                        put("durationSeconds", lastCmd.durationSeconds)
-                        put("sourceUrl", lastCmd.sourceUrl ?: "")
-                        put("positionMs", lastCmd.positionMs)
-                        put("speed", lastCmd.speed.toDouble())
-                        put("isPlaying", lastCmd.isPlaying)
-                        put("syncDelayMs", 0L)
-                    }.toString()
-                    writer.write(lateJson)
-                    writer.newLine()
-                    writer.flush()
+                val track = lastPreparedTrack
+                val cmd = lastSyncedPlayCommand
+                if (track != null && cmd != null) {
+                    scope.launch {
+                        syncLateJoinerTrack(session, track, lastPreparedPayload, cmd)
+                    }
                 }
             }
 
-            // Broadcast updated member list to every connected guest
-            broadcastLineToGuests(RoomProtocol.encodeMembers(updatedMembers), excludeId = guestId)
-
-            // Keep reading until guest disconnects
+            // Keep reading responses/status from this guest
             while (scope.isActive && _roomState.value.role == RoomRole.HOST) {
                 val line = reader.readLine() ?: break
-                Log.d(TAG, "Message from guest $guestName: $line")
+                handleHostReceivedFromGuest(guestId, line)
             }
         } catch (e: Exception) {
             Log.d(TAG, "Guest connection closed: ${e.message}")
         } finally {
             if (assignedClientId != null) {
                 hostClients.remove(assignedClientId)
+                clientPrepSignals.remove(assignedClientId)?.complete(true)
+                clientReadyAfterTransferSignals.remove(assignedClientId)?.complete(true)
                 if (_roomState.value.role == RoomRole.HOST) {
                     val remaining = buildCurrentHostMemberList(hostMember)
                     _roomState.update {
@@ -491,8 +368,93 @@ class BluetoothRoomManager(
         }
     }
 
+    private fun handleHostReceivedFromGuest(guestId: String, line: String) {
+        try {
+            val json = JSONObject(line)
+            val txId = json.optString("transferId")
+            when (json.optString("type")) {
+                "TRACK_READY" -> {
+                    if (txId == activeTransferId) {
+                        clientPrepSignals[guestId]?.complete(true)
+                        clientReadyAfterTransferSignals[guestId]?.complete(true)
+                    } else {
+                        clientReadyAfterTransferSignals["$txId:$guestId"]?.complete(true)
+                    }
+                }
+                "NEED_FILE" -> {
+                    if (txId == activeTransferId) {
+                        clientPrepSignals[guestId]?.complete(false)
+                    } else {
+                        clientPrepSignals["$txId:$guestId"]?.complete(false)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Host message parse error: ${e.message}")
+        }
+    }
+
+    private suspend fun syncLateJoinerTrack(
+        client: ClientSession,
+        track: Track,
+        payload: TrackAudioPayload?,
+        cmd: RoomSyncCommand
+    ) {
+        val lateTxId = "late_${System.currentTimeMillis()}"
+        val prepSignal = CompletableDeferred<Boolean>()
+        val readySignal = CompletableDeferred<Boolean>()
+        val key = "$lateTxId:${client.member.id}"
+        clientPrepSignals[key] = prepSignal
+        clientReadyAfterTransferSignals[key] = readySignal
+
+        try {
+            sendLineBlocking(
+                client.writer,
+                RoomProtocol.encodePrepareTrack(
+                    transferId = lateTxId,
+                    track = track,
+                    fileHash = payload?.fileHash,
+                    fileSize = payload?.fileSize ?: 0L,
+                    fileExt = payload?.fileExt,
+                    hasBinary = payload != null
+                )
+            )
+            val alreadyHasIt = withTimeoutOrNull(3_000L) { prepSignal.await() } ?: false
+            if (!alreadyHasIt && payload != null) {
+                streamPayloadToClients(lateTxId, track.title, payload, listOf(client), updateUiProgress = false)
+                withTimeoutOrNull(4_000L) { readySignal.await() }
+            }
+            sendLineBlocking(
+                client.writer,
+                RoomProtocol.encodeSyncPlay(
+                    track = track,
+                    positionMs = cmd.positionMs,
+                    speed = cmd.speed,
+                    isPlaying = cmd.isPlaying,
+                    syncDelayMs = 100L,
+                    fileHash = payload?.fileHash,
+                    fileSize = payload?.fileSize ?: 0L,
+                    fileExt = payload?.fileExt
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Late joiner sync error: ${e.message}")
+        } finally {
+            clientPrepSignals.remove(key)
+            clientReadyAfterTransferSignals.remove(key)
+        }
+    }
+
     private fun buildCurrentHostMemberList(hostMember: RoomMember): List<RoomMember> {
         return listOf(hostMember) + hostClients.values.map { it.member }
+    }
+
+    private fun sendLineBlocking(writer: BufferedWriter, line: String) {
+        synchronized(writer) {
+            writer.write(line)
+            writer.newLine()
+            writer.flush()
+        }
     }
 
     private fun broadcastLineToGuests(line: String, excludeId: String? = null) {
@@ -500,11 +462,7 @@ class BluetoothRoomManager(
             hostClients.forEach { (id, client) ->
                 if (id != excludeId) {
                     try {
-                        synchronized(client.writer) {
-                            client.writer.write(line)
-                            client.writer.newLine()
-                            client.writer.flush()
-                        }
+                        sendLineBlocking(client.writer, line)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed writing to ${client.member.name}: ${e.message}")
                     }
@@ -526,15 +484,269 @@ class BluetoothRoomManager(
         broadcastLineToGuests(RoomProtocol.encodeStartRoom())
     }
 
+    /**
+     * Ensures every connected Bluetooth device has the exact audio bytes for [track]
+     * (either cached by SHA-256 or transferred live over RFCOMM), then broadcasts SYNC_PLAY
+     * and invokes [onReadyToPlayLocal] with a sync start delay so everyone plays the same song together.
+     */
+    fun prepareAndPlayTrack(
+        track: Track,
+        positionMs: Long = 0L,
+        speed: Float = 1.0f,
+        onReadyToPlayLocal: (syncDelayMs: Long) -> Unit
+    ) {
+        val seq = transferSeq.incrementAndGet()
+        prepareTrackJob?.cancel()
+
+        val state = _roomState.value
+        if (state.role != RoomRole.HOST || state.phase != RoomPhase.PLAYING) {
+            onReadyToPlayLocal(0L)
+            return
+        }
+
+        val snapshotClients = hostClients.values.toList()
+        if (snapshotClients.isEmpty()) {
+            lastPreparedTrack = track
+            lastPreparedPayload = null
+            lastSyncedPlayCommand = RoomSyncCommand(
+                action = "SYNC_PLAY",
+                trackId = track.id,
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationSeconds = track.durationSeconds,
+                sourceUrl = track.sourceUrl,
+                positionMs = positionMs,
+                speed = speed,
+                isPlaying = true
+            )
+            scope.launch(Dispatchers.Main) {
+                onReadyToPlayLocal(0L)
+            }
+            return
+        }
+
+        prepareTrackJob = scope.launch {
+            val payload = RoomProtocol.resolveTrackAudioPayload(appContext, track)
+            if (!isActive || transferSeq.get() != seq) return@launch
+
+            lastPreparedTrack = track
+            lastPreparedPayload = payload
+
+            val txId = "tx_${seq}_${System.currentTimeMillis()}"
+            activeTransferId = txId
+            clientPrepSignals.clear()
+            clientReadyAfterTransferSignals.clear()
+
+            _roomState.update {
+                it.copy(
+                    isTransferringTrack = true,
+                    transferProgress = 0f,
+                    transferTrackTitle = track.title,
+                    statusMessage = "Syncing '${track.title}' to ${snapshotClients.size} device(s)..."
+                )
+            }
+
+            val prepMsg = RoomProtocol.encodePrepareTrack(
+                transferId = txId,
+                track = track,
+                fileHash = payload?.fileHash,
+                fileSize = payload?.fileSize ?: 0L,
+                fileExt = payload?.fileExt,
+                hasBinary = payload != null
+            )
+
+            snapshotClients.forEach { client ->
+                val cid = client.member.id
+                clientPrepSignals[cid] = CompletableDeferred()
+                clientReadyAfterTransferSignals[cid] = CompletableDeferred()
+                try {
+                    sendLineBlocking(client.writer, prepMsg)
+                } catch (_: Exception) {
+                    clientPrepSignals[cid]?.complete(true)
+                    clientReadyAfterTransferSignals[cid]?.complete(true)
+                }
+            }
+
+            // Wait briefly for guests to check local cache & say TRACK_READY or NEED_FILE
+            val needingClients = mutableListOf<ClientSession>()
+            snapshotClients.forEach { client ->
+                if (!isActive || transferSeq.get() != seq) return@launch
+                val cid = client.member.id
+                val readyImmediately = withTimeoutOrNull(2_500L) {
+                    clientPrepSignals[cid]?.await()
+                } ?: false
+                if (!readyImmediately) {
+                    needingClients.add(client)
+                }
+            }
+
+            // Stream actual audio file chunks to guests that don't already have this exact song
+            if (needingClients.isNotEmpty() && payload != null && isActive && transferSeq.get() == seq) {
+                val streamOk = streamPayloadToClients(
+                    transferId = txId,
+                    trackTitle = track.title,
+                    payload = payload,
+                    targets = needingClients,
+                    updateUiProgress = true
+                )
+                if (streamOk && isActive && transferSeq.get() == seq) {
+                    needingClients.forEach { client ->
+                        withTimeoutOrNull(4_000L) {
+                            clientReadyAfterTransferSignals[client.member.id]?.await()
+                        }
+                    }
+                }
+            } else if (needingClients.isNotEmpty() && payload == null) {
+                // Non-binary (starter or remote URL) -> wait briefly for remote URL download readiness
+                needingClients.forEach { client ->
+                    withTimeoutOrNull(6_000L) {
+                        clientReadyAfterTransferSignals[client.member.id]?.await()
+                    }
+                }
+            }
+
+            if (!isActive || transferSeq.get() != seq) return@launch
+
+            val syncDelay = 240L
+            lastSyncedPlayCommand = RoomSyncCommand(
+                action = "SYNC_PLAY",
+                trackId = track.id,
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationSeconds = track.durationSeconds,
+                sourceUrl = track.sourceUrl,
+                positionMs = positionMs,
+                speed = speed,
+                isPlaying = true,
+                syncDelayMs = syncDelay,
+                fileHash = payload?.fileHash,
+                fileSize = payload?.fileSize ?: 0L,
+                fileExt = payload?.fileExt
+            )
+
+            val syncPlayMsg = RoomProtocol.encodeSyncPlay(
+                track = track,
+                positionMs = positionMs,
+                speed = speed,
+                isPlaying = true,
+                syncDelayMs = syncDelay,
+                fileHash = payload?.fileHash,
+                fileSize = payload?.fileSize ?: 0L,
+                fileExt = payload?.fileExt
+            )
+
+            snapshotClients.forEach { client ->
+                try {
+                    sendLineBlocking(client.writer, syncPlayMsg)
+                } catch (_: Exception) {}
+            }
+
+            _roomState.update {
+                it.copy(
+                    isTransferringTrack = false,
+                    transferProgress = 1f,
+                    transferTrackTitle = null,
+                    currentSyncedTrackTitle = track.title,
+                    statusMessage = "Playing '${track.title}' across ${snapshotClients.size + 1} devices"
+                )
+            }
+
+            withContext(Dispatchers.Main) {
+                if (transferSeq.get() == seq) {
+                    onReadyToPlayLocal(syncDelay)
+                }
+            }
+        }
+    }
+
+    private fun streamPayloadToClients(
+        transferId: String,
+        trackTitle: String,
+        payload: TrackAudioPayload,
+        targets: List<ClientSession>,
+        updateUiProgress: Boolean
+    ): Boolean {
+        return try {
+            val startMsg = RoomProtocol.encodeFileStart(
+                transferId = transferId,
+                fileHash = payload.fileHash,
+                fileSize = payload.fileSize,
+                fileExt = payload.fileExt,
+                title = trackTitle
+            )
+            targets.forEach { client ->
+                try {
+                    sendLineBlocking(client.writer, startMsg)
+                } catch (_: Exception) {}
+            }
+
+            val stream = payload.openStream() ?: return false
+            var sentBytes = 0L
+            var chunkSeq = 0
+            var lastProgressEmit = 0L
+            val buffer = ByteArray(RoomProtocol.CHUNK_RAW_BYTES)
+
+            stream.use { input ->
+                var read: Int
+                while (input.read(buffer).also { read = it } != -1) {
+                    if (_roomState.value.role != RoomRole.HOST) return false
+                    if (updateUiProgress && activeTransferId != transferId) return false
+
+                    val encoded = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
+                    val chunkMsg = RoomProtocol.encodeFileChunk(transferId, chunkSeq++, encoded)
+                    targets.forEach { client ->
+                        try {
+                            sendLineBlocking(client.writer, chunkMsg)
+                        } catch (_: Exception) {}
+                    }
+
+                    sentBytes += read
+                    val now = System.currentTimeMillis()
+                    if (updateUiProgress && (now - lastProgressEmit >= 120L || sentBytes >= payload.fileSize)) {
+                        lastProgressEmit = now
+                        val progress = if (payload.fileSize > 0L) {
+                            (sentBytes.toFloat() / payload.fileSize.toFloat()).coerceIn(0f, 0.99f)
+                        } else 0f
+                        _roomState.update {
+                            it.copy(
+                                isTransferringTrack = true,
+                                transferProgress = progress,
+                                transferTrackTitle = trackTitle,
+                                statusMessage = "Sending '$trackTitle' to devices (${(progress * 100).toInt()}%)..."
+                            )
+                        }
+                    }
+                }
+            }
+
+            val endMsg = RoomProtocol.encodeFileEnd(transferId, payload.fileHash)
+            targets.forEach { client ->
+                try {
+                    sendLineBlocking(client.writer, endMsg)
+                } catch (_: Exception) {}
+            }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "streamPayloadToClients error: ${e.message}")
+            if (updateUiProgress) {
+                _roomState.update { it.copy(isTransferringTrack = false) }
+            }
+            false
+        }
+    }
+
     fun broadcastSyncPlay(
         track: Track,
         positionMs: Long = 0L,
         speed: Float = 1.0f,
         isPlaying: Boolean = true,
-        syncDelayMs: Long = 220L
+        syncDelayMs: Long = 240L
     ) {
         val state = _roomState.value
         if (state.role != RoomRole.HOST || state.phase != RoomPhase.PLAYING) return
+        val cachedPayload = if (lastPreparedTrack?.id == track.id) lastPreparedPayload else null
         lastSyncedPlayCommand = RoomSyncCommand(
             action = "SYNC_PLAY",
             trackId = track.id,
@@ -546,7 +758,10 @@ class BluetoothRoomManager(
             positionMs = positionMs,
             speed = speed,
             isPlaying = isPlaying,
-            syncDelayMs = syncDelayMs
+            syncDelayMs = syncDelayMs,
+            fileHash = cachedPayload?.fileHash,
+            fileSize = cachedPayload?.fileSize ?: 0L,
+            fileExt = cachedPayload?.fileExt
         )
         _roomState.update {
             it.copy(
@@ -554,7 +769,18 @@ class BluetoothRoomManager(
                 statusMessage = "Playing '${track.title}' across ${it.members.size} devices"
             )
         }
-        broadcastLineToGuests(RoomProtocol.encodeSyncPlay(track, positionMs, speed, isPlaying, syncDelayMs))
+        broadcastLineToGuests(
+            RoomProtocol.encodeSyncPlay(
+                track = track,
+                positionMs = positionMs,
+                speed = speed,
+                isPlaying = isPlaying,
+                syncDelayMs = syncDelayMs,
+                fileHash = cachedPayload?.fileHash,
+                fileSize = cachedPayload?.fileSize ?: 0L,
+                fileExt = cachedPayload?.fileExt
+            )
+        )
     }
 
     fun broadcastSyncPause(positionMs: Long) {
@@ -604,6 +830,9 @@ class BluetoothRoomManager(
                 members = emptyList(),
                 isConnecting = true,
                 isDiscovering = true,
+                isTransferringTrack = false,
+                transferProgress = 0f,
+                transferTrackTitle = null,
                 statusMessage = "Searching nearby Bluetooth devices for Room $cleanCode...",
                 errorMessage = null,
                 currentSyncedTrackTitle = null
@@ -618,7 +847,6 @@ class BluetoothRoomManager(
                 emptyList()
             }
 
-            // Phase 1: Probe already paired/bonded Bluetooth devices immediately
             for (device in pairedDevices) {
                 if (!isActive || _roomState.value.role != RoomRole.GUEST) return@launch
                 val addr = device.address ?: continue
@@ -628,7 +856,6 @@ class BluetoothRoomManager(
                 }
             }
 
-            // Phase 2: Scan nearby discoverable Bluetooth devices & probe as discovered
             val candidateQueue = java.util.concurrent.LinkedBlockingQueue<BluetoothDevice>()
             var discoveryCompleted = false
 
@@ -719,13 +946,11 @@ class BluetoothRoomManager(
             socket = device.createRfcommSocketToServiceRecord(ROOM_UUID)
             socket.connect()
 
-            val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8))
-            val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8))
+            val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, Charsets.UTF_8), 65536)
+            val reader = BufferedReader(InputStreamReader(socket.inputStream, Charsets.UTF_8), 65536)
 
             val myName = getLocalDeviceDisplayName()
-            writer.write(RoomProtocol.encodeJoin(roomCode, myName, localMemberId))
-            writer.newLine()
-            writer.flush()
+            sendLineBlocking(writer, RoomProtocol.encodeJoin(roomCode, myName, localMemberId))
 
             val responseLine = withTimeoutOrNull(4_000L) { reader.readLine() }
             if (responseLine.isNullOrBlank()) {
@@ -737,6 +962,7 @@ class BluetoothRoomManager(
             when (respJson.optString("type")) {
                 "WELCOME" -> {
                     guestSocket = socket
+                    guestWriter = writer
                     val phaseName = respJson.optString("phase", RoomPhase.LOBBY.name)
                     val parsedPhase = RoomPhase.entries.firstOrNull { it.name == phaseName } ?: RoomPhase.LOBBY
                     val parsedMembers = RoomProtocol.parseMembersArray(respJson.optJSONArray("members"))
@@ -762,7 +988,7 @@ class BluetoothRoomManager(
                         onGuestRoomStarted()
                     }
 
-                    listenToHostMessages(socket, reader)
+                    listenToHostMessages(socket, reader, writer)
                     true
                 }
                 else -> {
@@ -779,7 +1005,11 @@ class BluetoothRoomManager(
         }
     }
 
-    private fun listenToHostMessages(socket: BluetoothSocket, reader: BufferedReader) {
+    private fun listenToHostMessages(
+        socket: BluetoothSocket,
+        reader: BufferedReader,
+        writer: BufferedWriter
+    ) {
         scope.launch {
             try {
                 while (isActive && _roomState.value.role == RoomRole.GUEST) {
@@ -804,19 +1034,42 @@ class BluetoothRoomManager(
                             }
                             onGuestRoomStarted()
                         }
+                        "PREPARE_TRACK" -> {
+                            handleGuestPrepareTrack(json, writer)
+                        }
+                        "FILE_START" -> {
+                            handleGuestFileStart(json)
+                        }
+                        "FILE_CHUNK" -> {
+                            handleGuestFileChunk(json)
+                        }
+                        "FILE_END" -> {
+                            handleGuestFileEnd(json, writer)
+                        }
                         "SYNC_PLAY", "SYNC_PAUSE", "SYNC_SEEK" -> {
                             val cmd = RoomProtocol.parseSyncCommand(json)
                             if (cmd != null) {
-                                if (cmd.action == "SYNC_PLAY") {
+                                val resolvedCmd = if (cmd.action == "SYNC_PLAY") {
+                                    val cachedLocal = cmd.fileHash?.let { syncedFilePaths[it] }
+                                        ?: if (!cmd.fileHash.isNullOrBlank() && !cmd.fileExt.isNullOrBlank()) {
+                                            val candidate = File(syncCacheDir, "${cmd.fileHash}.${cmd.fileExt}")
+                                            if (candidate.exists() && candidate.length() > 512L) candidate.absolutePath else null
+                                        } else null
+
                                     _roomState.update {
                                         it.copy(
                                             phase = RoomPhase.PLAYING,
+                                            isTransferringTrack = false,
+                                            transferTrackTitle = null,
                                             currentSyncedTrackTitle = cmd.title,
                                             statusMessage = "Sync playing: ${cmd.title ?: "Track"}"
                                         )
                                     }
+                                    cmd.copy(localSyncedFilePath = cachedLocal)
+                                } else {
+                                    cmd
                                 }
-                                onGuestSyncCommand(cmd)
+                                onGuestSyncCommand(resolvedCmd)
                             }
                         }
                         "ROOM_CLOSED" -> {
@@ -830,12 +1083,202 @@ class BluetoothRoomManager(
             } catch (e: Exception) {
                 Log.d(TAG, "Host stream ended: ${e.message}")
             } finally {
+                closeIncomingFileSafely(deletePartial = true)
                 if (_roomState.value.role == RoomRole.GUEST && guestSocket == socket) {
                     closeInternalSockets(resetState = true)
                     onRoomEnded("Disconnected from Bluetooth Room")
                 }
             }
         }
+    }
+
+    private fun handleGuestPrepareTrack(json: JSONObject, writer: BufferedWriter) {
+        val transferId = json.optString("transferId")
+        val title = json.optString("title", "Shared Song")
+        val fileHash = json.optString("fileHash")
+        val fileSize = json.optLong("fileSize", 0L)
+        val fileExt = json.optString("fileExt", "mp3").ifBlank { "mp3" }
+        val hasBinary = json.optBoolean("hasBinary", false)
+        val sourceUrl = json.optString("sourceUrl")
+
+        if (hasBinary && fileHash.isNotBlank() && fileSize > 0L) {
+            val cachedFile = File(syncCacheDir, "$fileHash.$fileExt")
+            val existingCachedPath = syncedFilePaths[fileHash]
+                ?: if (cachedFile.exists() && cachedFile.length() == fileSize) cachedFile.absolutePath else null
+                ?: onFindLocalFileByHash(fileHash, fileSize, title)
+
+            if (existingCachedPath != null) {
+                syncedFilePaths[fileHash] = existingCachedPath
+                sendGuestLineAsync(writer, RoomProtocol.encodeTrackReady(transferId, fileHash))
+            } else {
+                _roomState.update {
+                    it.copy(
+                        isTransferringTrack = true,
+                        transferProgress = 0f,
+                        transferTrackTitle = title,
+                        statusMessage = "Receiving '$title' from host..."
+                    )
+                }
+                sendGuestLineAsync(writer, RoomProtocol.encodeNeedFile(transferId, fileHash))
+            }
+        } else if (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://")) {
+            val urlKey = "url_${sourceUrl.hashCode()}"
+            val cachedUrlFile = File(syncCacheDir, "$urlKey.$fileExt")
+            if (cachedUrlFile.exists() && cachedUrlFile.length() > 1024L) {
+                syncedFilePaths[urlKey] = cachedUrlFile.absolutePath
+                sendGuestLineAsync(writer, RoomProtocol.encodeTrackReady(transferId, fileHash))
+            } else {
+                _roomState.update {
+                    it.copy(
+                        isTransferringTrack = true,
+                        transferProgress = 0.25f,
+                        transferTrackTitle = title,
+                        statusMessage = "Downloading '$title'..."
+                    )
+                }
+                scope.launch {
+                    downloadRemoteUrlToCache(sourceUrl, cachedUrlFile)?.let {
+                        syncedFilePaths[urlKey] = it
+                    }
+                    _roomState.update { it.copy(isTransferringTrack = false) }
+                    sendGuestLineAsync(writer, RoomProtocol.encodeTrackReady(transferId, fileHash))
+                }
+            }
+        } else {
+            sendGuestLineAsync(writer, RoomProtocol.encodeTrackReady(transferId, fileHash))
+        }
+    }
+
+    private fun handleGuestFileStart(json: JSONObject) {
+        closeIncomingFileSafely(deletePartial = true)
+        val transferId = json.optString("transferId")
+        val fileHash = json.optString("fileHash")
+        val fileSize = json.optLong("fileSize", 0L)
+        val fileExt = json.optString("fileExt", "mp3").ifBlank { "mp3" }
+        val title = json.optString("title", "Song")
+
+        val finalFile = File(syncCacheDir, "$fileHash.$fileExt")
+        val partFile = File(syncCacheDir, "$fileHash.$fileExt.part")
+        if (partFile.exists()) partFile.delete()
+
+        incomingFile = IncomingFileState(
+            transferId = transferId,
+            fileHash = fileHash,
+            fileExt = fileExt,
+            expectedSize = fileSize,
+            title = title,
+            partFile = partFile,
+            finalFile = finalFile,
+            output = BufferedOutputStream(FileOutputStream(partFile), 32768)
+        )
+        _roomState.update {
+            it.copy(
+                isTransferringTrack = true,
+                transferProgress = 0f,
+                transferTrackTitle = title,
+                statusMessage = "Receiving '$title' (0%)..."
+            )
+        }
+    }
+
+    private fun handleGuestFileChunk(json: JSONObject) {
+        val active = incomingFile ?: return
+        val transferId = json.optString("transferId")
+        if (transferId != active.transferId) return
+
+        val encoded = json.optString("data")
+        if (encoded.isEmpty()) return
+
+        val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+        active.output.write(bytes)
+        active.bytesWritten += bytes.size
+
+        if (active.expectedSize > 0L) {
+            val pct = (active.bytesWritten.toFloat() / active.expectedSize.toFloat()).coerceIn(0f, 0.99f)
+            _roomState.update {
+                it.copy(
+                    isTransferringTrack = true,
+                    transferProgress = pct,
+                    transferTrackTitle = active.title,
+                    statusMessage = "Receiving '${active.title}' (${(pct * 100).toInt()}%)..."
+                )
+            }
+        }
+    }
+
+    private fun handleGuestFileEnd(json: JSONObject, writer: BufferedWriter) {
+        val transferId = json.optString("transferId")
+        val fileHash = json.optString("fileHash")
+        val active = incomingFile
+        if (active != null && active.transferId == transferId) {
+            try {
+                active.output.flush()
+                active.output.close()
+                if (active.partFile.exists() && active.partFile.length() > 512L) {
+                    if (active.finalFile.exists()) active.finalFile.delete()
+                    if (active.partFile.renameTo(active.finalFile)) {
+                        syncedFilePaths[active.fileHash] = active.finalFile.absolutePath
+                    } else {
+                        syncedFilePaths[active.fileHash] = active.partFile.absolutePath
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error finalizing received song: ${e.message}")
+            } finally {
+                incomingFile = null
+            }
+        }
+        _roomState.update {
+            it.copy(
+                isTransferringTrack = false,
+                transferProgress = 1f,
+                transferTrackTitle = null,
+                statusMessage = "Song synced! Starting playback..."
+            )
+        }
+        sendGuestLineAsync(writer, RoomProtocol.encodeTrackReady(transferId, fileHash))
+    }
+
+    private fun sendGuestLineAsync(writer: BufferedWriter, line: String) {
+        scope.launch {
+            try {
+                sendLineBlocking(writer, line)
+            } catch (e: Exception) {
+                Log.w(TAG, "Guest send error: ${e.message}")
+            }
+        }
+    }
+
+    private fun downloadRemoteUrlToCache(url: String, targetFile: File): String? {
+        return try {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 20000
+                instanceFollowRedirects = true
+            }
+            conn.inputStream.use { input ->
+                FileOutputStream(targetFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            if (targetFile.exists() && targetFile.length() > 512L) targetFile.absolutePath else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun closeIncomingFileSafely(deletePartial: Boolean) {
+        incomingFile?.let { active ->
+            try {
+                active.output.close()
+            } catch (_: Exception) {}
+            if (deletePartial && active.partFile.exists()) {
+                try {
+                    active.partFile.delete()
+                } catch (_: Exception) {}
+            }
+        }
+        incomingFile = null
     }
 
     private fun registerDiscoveryReceiverSafely(receiver: BroadcastReceiver) {
@@ -867,9 +1310,7 @@ class BluetoothRoomManager(
             val closeMsg = RoomProtocol.encodeRoomClosed("Host closed the Room")
             hostClients.values.forEach { client ->
                 try {
-                    client.writer.write(closeMsg)
-                    client.writer.newLine()
-                    client.writer.flush()
+                    sendLineBlocking(client.writer, closeMsg)
                 } catch (_: Exception) {}
             }
         }
@@ -882,6 +1323,13 @@ class BluetoothRoomManager(
 
     @SuppressLint("MissingPermission")
     private fun closeInternalSockets(resetState: Boolean) {
+        prepareTrackJob?.cancel()
+        prepareTrackJob = null
+        activeTransferId = null
+        clientPrepSignals.clear()
+        clientReadyAfterTransferSignals.clear()
+        closeIncomingFileSafely(deletePartial = true)
+
         unregisterDiscoveryReceiverSafely()
         try {
             if (hasBluetoothPermissions(appContext) && bluetoothAdapter?.isDiscovering == true) {
@@ -910,8 +1358,11 @@ class BluetoothRoomManager(
             guestSocket?.close()
         } catch (_: Exception) {}
         guestSocket = null
+        guestWriter = null
 
         lastSyncedPlayCommand = null
+        lastPreparedTrack = null
+        lastPreparedPayload = null
 
         if (resetState) {
             _roomState.update {
@@ -922,6 +1373,9 @@ class BluetoothRoomManager(
                     members = emptyList(),
                     isConnecting = false,
                     isDiscovering = false,
+                    isTransferringTrack = false,
+                    transferProgress = 0f,
+                    transferTrackTitle = null,
                     statusMessage = null,
                     errorMessage = null,
                     currentSyncedTrackTitle = null

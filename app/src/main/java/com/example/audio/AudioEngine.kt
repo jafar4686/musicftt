@@ -118,8 +118,8 @@ class AudioEngine(
                 }
             }
 
-            // 3. Fallback to real bundled acoustic track (res/raw/aura_music.wav)
-            if (!dataSourceSet) {
+            // 3. Fallback to bundled acoustic track ONLY for starter/demo tracks that have no file or stream URL
+            if (!dataSourceSet && track.localFilePath.isNullOrBlank() && track.sourceUrl.isNullOrBlank()) {
                 try {
                     val afd = context.resources.openRawResourceFd(R.raw.aura_music)
                     if (afd != null) {
@@ -134,6 +134,7 @@ class AudioEngine(
 
             if (!dataSourceSet) {
                 Log.e("AudioEngine", "No valid data source found for track ${track.title}")
+                onError("Unable to open audio for '${track.title}'")
                 return
             }
 

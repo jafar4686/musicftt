@@ -152,7 +152,11 @@ data class RoomSyncCommand(
     val positionMs: Long = 0L,
     val speed: Float = 1.0f,
     val isPlaying: Boolean = true,
-    val syncDelayMs: Long = 0L
+    val syncDelayMs: Long = 0L,
+    val fileHash: String? = null,
+    val fileSize: Long = 0L,
+    val fileExt: String? = null,
+    val localSyncedFilePath: String? = null
 )
 
 data class BluetoothRoomState(
@@ -165,6 +169,9 @@ data class BluetoothRoomState(
     val hasBluetoothPermission: Boolean = false,
     val isConnecting: Boolean = false,
     val isDiscovering: Boolean = false,
+    val isTransferringTrack: Boolean = false,
+    val transferProgress: Float = 0f,
+    val transferTrackTitle: String? = null,
     val statusMessage: String? = null,
     val errorMessage: String? = null,
     val currentSyncedTrackTitle: String? = null

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.bluetooth.BluetoothRoomManager
+import com.example.bluetooth.RoomProtocol
 import com.example.data.LinkDetector
 import com.example.data.MusicRepository
 import com.example.model.AnimatedArtStyle
@@ -86,6 +87,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.Main) {
                 _snackMessage.value = reason
             }
+        },
+        onFindLocalFileByHash = { fileHash, fileSize, title ->
+            findMatchingLocalLibraryFile(fileHash, fileSize, title)
         }
     )
 
@@ -107,6 +111,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         PlaybackManager.isHostRoomActive = {
             val rs = roomManager.roomState.value
             rs.role == RoomRole.HOST && rs.phase == RoomPhase.PLAYING
+        }
+        PlaybackManager.onPrepareHostTrackForRoom = { track, speed, onReadyLocal ->
+            roomManager.prepareAndPlayTrack(
+                track = track,
+                positionMs = 0L,
+                speed = speed,
+                onReadyToPlayLocal = onReadyLocal
+            )
         }
         PlaybackManager.onHostRoomPlaybackEvent = { event ->
             when (event) {
@@ -195,26 +207,57 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun resolveTrackForSync(cmd: RoomSyncCommand): Track {
-        val library = tracks.value
-        val byId = cmd.trackId?.let { id -> library.firstOrNull { it.id == id } }
-        if (byId != null) return byId
-
-        val normTitle = cmd.title?.trim()?.lowercase()
-        val normArtist = cmd.artist?.trim()?.lowercase()
-        if (!normTitle.isNullOrBlank()) {
-            val exactMatch = library.firstOrNull {
-                it.title.trim().lowercase() == normTitle &&
-                    (normArtist.isNullOrBlank() || it.artist.trim().lowercase() == normArtist)
-            }
-            if (exactMatch != null) return exactMatch
-
-            val titleMatch = library.firstOrNull { it.title.trim().lowercase() == normTitle }
-            if (titleMatch != null) return titleMatch
+    private fun findMatchingLocalLibraryFile(
+        fileHash: String,
+        fileSize: Long,
+        title: String?
+    ): String? {
+        if (fileHash.isBlank()) return null
+        val normTitle = title?.trim()?.lowercase()
+        val candidates = tracks.value.filter { tr ->
+            val lp = tr.localFilePath
+            !lp.isNullOrBlank() && !lp.startsWith("content://")
+        }.sortedByDescending { tr ->
+            if (!normTitle.isNullOrBlank() && tr.title.trim().lowercase() == normTitle) 1 else 0
         }
 
+        for (candidate in candidates) {
+            val file = java.io.File(candidate.localFilePath ?: continue)
+            if (file.exists() && (fileSize <= 0L || file.length() == fileSize)) {
+                val hash = RoomProtocol.computeFileSha256(file)
+                if (hash == fileHash) {
+                    return file.absolutePath
+                }
+            }
+        }
+        return null
+    }
+
+    private fun resolveTrackForSync(cmd: RoomSyncCommand): Track {
+        // 1. Always prefer the exact Bluetooth-transferred or SHA-256-verified audio file
+        val syncedPath = cmd.localSyncedFilePath
+        if (!syncedPath.isNullOrBlank()) {
+            return Track(
+                id = "room_sync_${cmd.fileHash ?: cmd.trackId ?: System.currentTimeMillis()}",
+                title = cmd.title ?: "Shared Room Track",
+                artist = cmd.artist ?: "Room Host",
+                album = cmd.album ?: "Bluetooth Room Sync",
+                durationSeconds = cmd.durationSeconds.coerceAtLeast(10),
+                localFilePath = syncedPath,
+                sourceUrl = cmd.sourceUrl,
+                isDownloaded = true
+            )
+        }
+
+        // 2. Built-in bundled starter tracks share identical IDs across installs
+        val starterId = cmd.trackId
+        if (!starterId.isNullOrBlank() && starterId.startsWith("asd_starter_")) {
+            tracks.value.firstOrNull { it.id == starterId }?.let { return it }
+        }
+
+        // 3. Otherwise stream from remote URL (never collide on foreign device_* IDs!)
         return Track(
-            id = cmd.trackId ?: "room_sync_${System.currentTimeMillis()}",
+            id = "room_sync_${cmd.fileHash ?: cmd.trackId ?: System.currentTimeMillis()}",
             title = cmd.title ?: "Shared Room Track",
             artist = cmd.artist ?: "Room Host",
             album = cmd.album ?: "Bluetooth Room Sync",
@@ -399,6 +442,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         PlaybackManager.onHostRoomPlaybackEvent = null
+        PlaybackManager.onPrepareHostTrackForRoom = null
         PlaybackManager.isHostRoomActive = { false }
         roomManager.release()
     }

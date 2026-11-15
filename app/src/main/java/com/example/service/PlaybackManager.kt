@@ -61,6 +61,7 @@ object PlaybackManager {
 
     var isHostRoomActive: () -> Boolean = { false }
     var onHostRoomPlaybackEvent: ((HostRoomPlaybackEvent) -> Unit)? = null
+    var onPrepareHostTrackForRoom: ((track: Track, speed: Float, onReadyLocal: (syncDelayMs: Long) -> Unit) -> Unit)? = null
     private var suppressRoomBroadcast: Boolean = false
     private var syncStartJob: Job? = null
 
@@ -228,15 +229,29 @@ object PlaybackManager {
             )
         }
         if (!suppressRoomBroadcast && isHostRoomActive()) {
-            onHostRoomPlaybackEvent?.invoke(
-                HostRoomPlaybackEvent.Play(
-                    track = track,
-                    positionMs = 0L,
-                    speed = _soundSettings.value.playbackSpeed,
-                    isPlaying = true
+            val prepareHook = onPrepareHostTrackForRoom
+            if (prepareHook != null) {
+                syncStartJob?.cancel()
+                audioEngine?.pause()
+                stopProgressTracking()
+                _playbackState.update { it.copy(isPlaying = false, isBuffering = true) }
+                prepareHook.invoke(track, _soundSettings.value.playbackSpeed) { syncDelayMs ->
+                    if (_playbackState.value.currentTrack?.id == track.id) {
+                        _playbackState.update { it.copy(isBuffering = false) }
+                        play(ctx, startDelayMs = syncDelayMs)
+                    }
+                }
+            } else {
+                onHostRoomPlaybackEvent?.invoke(
+                    HostRoomPlaybackEvent.Play(
+                        track = track,
+                        positionMs = 0L,
+                        speed = _soundSettings.value.playbackSpeed,
+                        isPlaying = true
+                    )
                 )
-            )
-            play(ctx, startDelayMs = 220L)
+                play(ctx, startDelayMs = 220L)
+            }
         } else {
             play(ctx)
         }
@@ -253,7 +268,7 @@ object PlaybackManager {
             }
         } catch (_: Exception) {}
 
-        _playbackState.update { it.copy(isPlaying = true) }
+        _playbackState.update { it.copy(isPlaying = true, isBuffering = false) }
         if (startDelayMs > 0L) {
             syncStartJob = scope.launch {
                 delay(startDelayMs)
@@ -372,15 +387,29 @@ object PlaybackManager {
             )
         }
         if (!suppressRoomBroadcast && isHostRoomActive()) {
-            onHostRoomPlaybackEvent?.invoke(
-                HostRoomPlaybackEvent.Play(
-                    track = nextTrack,
-                    positionMs = 0L,
-                    speed = _soundSettings.value.playbackSpeed,
-                    isPlaying = true
+            val prepareHook = onPrepareHostTrackForRoom
+            if (prepareHook != null) {
+                syncStartJob?.cancel()
+                audioEngine?.pause()
+                stopProgressTracking()
+                _playbackState.update { it.copy(isPlaying = false, isBuffering = true) }
+                prepareHook.invoke(nextTrack, _soundSettings.value.playbackSpeed) { syncDelayMs ->
+                    if (_playbackState.value.currentTrack?.id == nextTrack.id) {
+                        _playbackState.update { it.copy(isBuffering = false) }
+                        play(context, startDelayMs = syncDelayMs)
+                    }
+                }
+            } else {
+                onHostRoomPlaybackEvent?.invoke(
+                    HostRoomPlaybackEvent.Play(
+                        track = nextTrack,
+                        positionMs = 0L,
+                        speed = _soundSettings.value.playbackSpeed,
+                        isPlaying = true
+                    )
                 )
-            )
-            play(context, startDelayMs = 220L)
+                play(context, startDelayMs = 220L)
+            }
         } else {
             play(context)
         }
@@ -405,15 +434,29 @@ object PlaybackManager {
             )
         }
         if (!suppressRoomBroadcast && isHostRoomActive()) {
-            onHostRoomPlaybackEvent?.invoke(
-                HostRoomPlaybackEvent.Play(
-                    track = prevTrack,
-                    positionMs = 0L,
-                    speed = _soundSettings.value.playbackSpeed,
-                    isPlaying = true
+            val prepareHook = onPrepareHostTrackForRoom
+            if (prepareHook != null) {
+                syncStartJob?.cancel()
+                audioEngine?.pause()
+                stopProgressTracking()
+                _playbackState.update { it.copy(isPlaying = false, isBuffering = true) }
+                prepareHook.invoke(prevTrack, _soundSettings.value.playbackSpeed) { syncDelayMs ->
+                    if (_playbackState.value.currentTrack?.id == prevTrack.id) {
+                        _playbackState.update { it.copy(isBuffering = false) }
+                        play(context, startDelayMs = syncDelayMs)
+                    }
+                }
+            } else {
+                onHostRoomPlaybackEvent?.invoke(
+                    HostRoomPlaybackEvent.Play(
+                        track = prevTrack,
+                        positionMs = 0L,
+                        speed = _soundSettings.value.playbackSpeed,
+                        isPlaying = true
+                    )
                 )
-            )
-            play(context, startDelayMs = 220L)
+                play(context, startDelayMs = 220L)
+            }
         } else {
             play(context)
         }
@@ -459,7 +502,8 @@ object PlaybackManager {
         suppressRoomBroadcast = true
         try {
             setPlaybackSpeed(speed)
-            val sameTrack = _playbackState.value.currentTrack?.id == track.id
+            val cur = _playbackState.value.currentTrack
+            val sameTrack = cur?.id == track.id && cur.localFilePath == track.localFilePath
             if (!sameTrack) {
                 resetPlaySession(track.id)
                 _playbackState.update {
