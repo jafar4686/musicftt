@@ -3,13 +3,10 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.bluetooth.BluetoothRoomManager
-import com.example.bluetooth.RoomProtocol
 import com.example.data.LinkDetector
 import com.example.data.MusicRepository
 import com.example.model.AnimatedArtStyle
 import com.example.model.AppThemeMode
-import com.example.model.BluetoothRoomState
 import com.example.model.DownloadItem
 import com.example.model.EqualizerPreset
 import com.example.model.LarkSoundSettings
@@ -18,8 +15,11 @@ import com.example.model.Playlist
 import com.example.model.RoomPhase
 import com.example.model.RoomRole
 import com.example.model.RoomSyncCommand
+import com.example.model.SyncRoomState
 import com.example.model.Track
 import com.example.model.UserProfile
+import com.example.network.NetworkRoomManager
+import com.example.network.RoomProtocol
 import com.example.service.PlaybackManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -71,7 +71,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _snackMessage = MutableStateFlow<String?>(null)
     val snackMessage: StateFlow<String?> = _snackMessage.asStateFlow()
 
-    private val roomManager = BluetoothRoomManager(
+    private val roomManager = NetworkRoomManager(
         context = application,
         onGuestSyncCommand = { cmd ->
             viewModelScope.launch(Dispatchers.Main) {
@@ -93,7 +93,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     )
 
-    val roomState: StateFlow<BluetoothRoomState> = roomManager.roomState
+    val roomState: StateFlow<SyncRoomState> = roomManager.roomState
 
     val storageSizeFormatted: StateFlow<String> = repository.downloads.combine(repository.tracks) { dlList, _ ->
         val completedCount = dlList.count { it.status == com.example.model.DownloadStatus.COMPLETED }
@@ -144,22 +144,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _isDarkMode.value = savedMode == AppThemeMode.DARK
     }
 
-    fun refreshBluetoothStatus() {
-        roomManager.refreshBluetoothStatus()
+    fun refreshNetworkStatus() {
+        roomManager.refreshNetworkStatus()
     }
 
-    fun createBluetoothRoom() {
+    fun createNetworkRoom() {
         val code = roomManager.createRoom()
         if (code != null) {
-            _snackMessage.value = "Room $code created! Share this 5-digit code to join."
+            _snackMessage.value = "Room $code created on network! Share this 5-digit code to join."
         }
     }
 
-    fun joinBluetoothRoom(code: String) {
-        roomManager.joinRoom(code)
+    fun joinNetworkRoom(code: String, hostIp: String? = null) {
+        roomManager.joinRoom(code, hostIp)
     }
 
-    fun startBluetoothRoom() {
+    fun startNetworkRoom() {
         roomManager.startRoom()
         _snackMessage.value = "Room started! Pick a song to play for everyone simultaneously."
     }
@@ -172,9 +172,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         playTrack(track, tracks.value)
     }
 
-    fun leaveBluetoothRoom() {
+    fun leaveNetworkRoom() {
         roomManager.leaveOrCloseRoom()
-        _snackMessage.value = "Left Bluetooth Room"
+        _snackMessage.value = "Left Listen Together Room"
     }
 
     fun clearRoomFeedback() {
@@ -234,14 +234,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun resolveTrackForSync(cmd: RoomSyncCommand): Track {
-        // 1. Always prefer the exact Bluetooth-transferred or SHA-256-verified audio file
+        // 1. Always prefer the exact network-transferred or SHA-256-verified audio file
         val syncedPath = cmd.localSyncedFilePath
         if (!syncedPath.isNullOrBlank()) {
             return Track(
                 id = "room_sync_${cmd.fileHash ?: cmd.trackId ?: System.currentTimeMillis()}",
                 title = cmd.title ?: "Shared Room Track",
                 artist = cmd.artist ?: "Room Host",
-                album = cmd.album ?: "Bluetooth Room Sync",
+                album = cmd.album ?: "Network Room Sync",
                 durationSeconds = cmd.durationSeconds.coerceAtLeast(10),
                 localFilePath = syncedPath,
                 sourceUrl = cmd.sourceUrl,
@@ -260,7 +260,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             id = "room_sync_${cmd.fileHash ?: cmd.trackId ?: System.currentTimeMillis()}",
             title = cmd.title ?: "Shared Room Track",
             artist = cmd.artist ?: "Room Host",
-            album = cmd.album ?: "Bluetooth Room Sync",
+            album = cmd.album ?: "Network Room Sync",
             durationSeconds = cmd.durationSeconds.coerceAtLeast(10),
             sourceUrl = cmd.sourceUrl,
             isDownloaded = false

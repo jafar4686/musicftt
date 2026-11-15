@@ -1,4 +1,4 @@
-package com.example.bluetooth
+package com.example.network
 
 import android.content.Context
 import android.net.Uri
@@ -13,18 +13,26 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 import java.security.MessageDigest
+import kotlin.random.Random
 
 data class TrackAudioPayload(
     val fileHash: String,
     val fileSize: Long,
     val fileExt: String,
+    val mimeType: String,
     val openStream: () -> InputStream?
 )
 
 object RoomProtocol {
     private const val TAG = "RoomProtocol"
-    const val MAX_TRANSFER_BYTES = 35L * 1024L * 1024L
-    const val CHUNK_RAW_BYTES = 16 * 1024
+    const val MAX_TRANSFER_BYTES = 50L * 1024L * 1024L
+    const val DEFAULT_CONTROL_PORT = 45892
+    const val DEFAULT_UDP_PORT = 45891
+    const val NSD_SERVICE_TYPE = "_asdmusic._tcp."
+
+    fun generateFiveDigitCode(): String = Random.nextInt(10_000, 100_000).toString()
+
+    fun isValidRoomCode(code: String): Boolean = code.length == 5 && code.all { it.isDigit() }
 
     fun encodeJoin(code: String, memberName: String, memberId: String): String {
         return JSONObject().apply {
@@ -70,7 +78,8 @@ object RoomProtocol {
         fileHash: String?,
         fileSize: Long,
         fileExt: String?,
-        hasBinary: Boolean
+        hasBinary: Boolean,
+        audioDownloadUrl: String? = null
     ): String {
         return JSONObject().apply {
             put("type", "PREPARE_TRACK")
@@ -85,14 +94,7 @@ object RoomProtocol {
             put("fileSize", fileSize)
             put("fileExt", fileExt ?: "mp3")
             put("hasBinary", hasBinary)
-        }.toString()
-    }
-
-    fun encodeNeedFile(transferId: String, fileHash: String): String {
-        return JSONObject().apply {
-            put("type", "NEED_FILE")
-            put("transferId", transferId)
-            put("fileHash", fileHash)
+            put("audioDownloadUrl", audioDownloadUrl ?: "")
         }.toString()
     }
 
@@ -104,31 +106,11 @@ object RoomProtocol {
         }.toString()
     }
 
-    fun encodeFileStart(transferId: String, fileHash: String, fileSize: Long, fileExt: String, title: String): String {
+    fun encodeTrackFailed(transferId: String, reason: String): String {
         return JSONObject().apply {
-            put("type", "FILE_START")
+            put("type", "TRACK_FAILED")
             put("transferId", transferId)
-            put("fileHash", fileHash)
-            put("fileSize", fileSize)
-            put("fileExt", fileExt)
-            put("title", title)
-        }.toString()
-    }
-
-    fun encodeFileChunk(transferId: String, seq: Int, base64Data: String): String {
-        return JSONObject().apply {
-            put("type", "FILE_CHUNK")
-            put("transferId", transferId)
-            put("seq", seq)
-            put("data", base64Data)
-        }.toString()
-    }
-
-    fun encodeFileEnd(transferId: String, fileHash: String): String {
-        return JSONObject().apply {
-            put("type", "FILE_END")
-            put("transferId", transferId)
-            put("fileHash", fileHash)
+            put("reason", reason)
         }.toString()
     }
 
@@ -137,7 +119,7 @@ object RoomProtocol {
         positionMs: Long,
         speed: Float,
         isPlaying: Boolean,
-        syncDelayMs: Long = 240L,
+        syncDelayMs: Long = 180L,
         fileHash: String? = null,
         fileSize: Long = 0L,
         fileExt: String? = null
@@ -172,6 +154,12 @@ object RoomProtocol {
             put("type", "SYNC_SEEK")
             put("positionMs", positionMs.coerceAtLeast(0L))
             put("isPlaying", isPlaying)
+        }.toString()
+    }
+
+    fun encodePing(): String {
+        return JSONObject().apply {
+            put("type", "PING")
         }.toString()
     }
 
@@ -251,7 +239,7 @@ object RoomProtocol {
         return try {
             if (path.startsWith("content://")) {
                 val uri = Uri.parse(path)
-                val ext = detectExtFromUriOrMime(context, uri, track.isVideo)
+                val (ext, mime) = detectExtAndMimeFromUri(context, uri, track.isVideo)
                 val digestAndSize = computeStreamHashAndSize {
                     context.contentResolver.openInputStream(uri)
                 } ?: return null
@@ -261,6 +249,7 @@ object RoomProtocol {
                     fileHash = hash,
                     fileSize = size,
                     fileExt = ext,
+                    mimeType = mime,
                     openStream = { context.contentResolver.openInputStream(uri) }
                 )
             } else {
@@ -269,11 +258,13 @@ object RoomProtocol {
                     return null
                 }
                 val ext = file.extension.lowercase().ifBlank { if (track.isVideo) "mp4" else "mp3" }
+                val mime = mimeForExtension(ext)
                 val digestAndSize = computeStreamHashAndSize { FileInputStream(file) } ?: return null
                 TrackAudioPayload(
                     fileHash = digestAndSize.first,
                     fileSize = digestAndSize.second,
                     fileExt = ext,
+                    mimeType = mime,
                     openStream = { FileInputStream(file) }
                 )
             }
@@ -308,23 +299,37 @@ object RoomProtocol {
         }
     }
 
-    private fun detectExtFromUriOrMime(context: Context, uri: Uri, isVideo: Boolean): String {
-        val mime = try {
+    private fun detectExtAndMimeFromUri(context: Context, uri: Uri, isVideo: Boolean): Pair<String, String> {
+        val rawMime = try {
             context.contentResolver.getType(uri)?.lowercase()
         } catch (_: Exception) {
             null
         }
         return when {
-            mime == null -> if (isVideo) "mp4" else "mp3"
-            mime.contains("mp4") && mime.contains("audio") -> "m4a"
-            mime.contains("mp4") -> "mp4"
-            mime.contains("mpeg") || mime.contains("mp3") -> "mp3"
-            mime.contains("wav") -> "wav"
-            mime.contains("ogg") -> "ogg"
-            mime.contains("flac") -> "flac"
-            mime.contains("aac") -> "aac"
-            mime.contains("webm") -> "webm"
-            else -> if (isVideo) "mp4" else "mp3"
+            rawMime == null -> if (isVideo) "mp4" to "video/mp4" else "mp3" to "audio/mpeg"
+            rawMime.contains("mp4") && rawMime.contains("audio") -> "m4a" to "audio/mp4"
+            rawMime.contains("mp4") -> "mp4" to "video/mp4"
+            rawMime.contains("mpeg") || rawMime.contains("mp3") -> "mp3" to "audio/mpeg"
+            rawMime.contains("wav") -> "wav" to "audio/wav"
+            rawMime.contains("ogg") -> "ogg" to "audio/ogg"
+            rawMime.contains("flac") -> "flac" to "audio/flac"
+            rawMime.contains("aac") -> "aac" to "audio/aac"
+            rawMime.contains("webm") -> "webm" to rawMime
+            else -> if (isVideo) "mp4" to "video/mp4" else "mp3" to "audio/mpeg"
+        }
+    }
+
+    private fun mimeForExtension(ext: String): String {
+        return when (ext.lowercase()) {
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "mp4" -> "video/mp4"
+            "wav" -> "audio/wav"
+            "ogg" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "aac" -> "audio/aac"
+            "webm" -> "audio/webm"
+            else -> "application/octet-stream"
         }
     }
 }

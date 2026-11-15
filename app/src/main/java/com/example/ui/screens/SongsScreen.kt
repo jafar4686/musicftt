@@ -26,13 +26,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -61,9 +61,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
-import com.example.model.BluetoothRoomState
 import com.example.model.RoomPhase
 import com.example.model.RoomRole
+import com.example.model.SyncRoomState
 import com.example.model.Track
 import com.example.ui.components.PlayCountBadge
 import com.example.ui.components.SongCoverArtView
@@ -88,7 +88,7 @@ fun SongsScreen(
     hasPermissions: Boolean,
     favoriteTrackIds: Set<String>,
     playbackSpeed: Float = 1.0f,
-    roomState: BluetoothRoomState = BluetoothRoomState(),
+    roomState: SyncRoomState = SyncRoomState(),
     onOpenRoomSettings: () -> Unit = {},
     onSetPlaybackSpeed: (Float) -> Unit = {},
     onRequestPermissions: () -> Unit,
@@ -281,7 +281,7 @@ fun SongsScreen(
                     onClose = { showSpeedBar = false }
                 )
 
-                // Active Bluetooth Multi-Device Room Banner
+                // Active Network Multi-Device Room Banner
                 if (roomState.phase != RoomPhase.IDLE) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
@@ -313,8 +313,8 @@ fun SongsScreen(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.BluetoothConnected,
-                                    contentDescription = "Bluetooth Room Active",
+                                    imageVector = Icons.Default.WifiTethering,
+                                    contentDescription = "Network Room Active",
                                     tint = if (roomState.phase == RoomPhase.PLAYING) AccentGreen else PlusBlue,
                                     modifier = Modifier.size(18.dp)
                                 )

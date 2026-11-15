@@ -213,16 +213,16 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `bluetooth room generates valid 5-digit codes and encodes sync protocol`() {
+  fun `network room generates valid 5-digit codes and encodes sync protocol`() {
     repeat(20) {
-      val code = com.example.bluetooth.BluetoothRoomManager.generateFiveDigitCode()
+      val code = com.example.network.RoomProtocol.generateFiveDigitCode()
       assertEquals(5, code.length)
       assertTrue(code.all { it.isDigit() })
-      assertTrue(com.example.bluetooth.BluetoothRoomManager.isValidRoomCode(code))
+      assertTrue(com.example.network.RoomProtocol.isValidRoomCode(code))
     }
 
-    assertEquals(false, com.example.bluetooth.BluetoothRoomManager.isValidRoomCode("1234"))
-    assertEquals(false, com.example.bluetooth.BluetoothRoomManager.isValidRoomCode("12a45"))
+    assertEquals(false, com.example.network.RoomProtocol.isValidRoomCode("1234"))
+    assertEquals(false, com.example.network.RoomProtocol.isValidRoomCode("12a45"))
 
     val members = listOf(
       com.example.model.RoomMember(id = "host_1", name = "Pixel (Host)", isHost = true),
@@ -230,7 +230,7 @@ class ExampleRobolectricTest {
       com.example.model.RoomMember(id = "guest_2", name = "OnePlus 12", isHost = false)
     )
     val welcomeJson = org.json.JSONObject(
-      com.example.bluetooth.BluetoothRoomManager.RoomProtocol.encodeWelcome(
+      com.example.network.RoomProtocol.encodeWelcome(
         code = "54321",
         phase = com.example.model.RoomPhase.LOBBY,
         members = members
@@ -238,7 +238,7 @@ class ExampleRobolectricTest {
     )
     assertEquals("WELCOME", welcomeJson.getString("type"))
     assertEquals("54321", welcomeJson.getString("code"))
-    val parsedMembers = com.example.bluetooth.BluetoothRoomManager.RoomProtocol.parseMembersArray(
+    val parsedMembers = com.example.network.RoomProtocol.parseMembersArray(
       welcomeJson.getJSONArray("members")
     )
     assertEquals(3, parsedMembers.size)
@@ -250,16 +250,29 @@ class ExampleRobolectricTest {
       artist = "Asd Acoustic",
       durationSeconds = 195
     )
+    val prepareJson = org.json.JSONObject(
+      com.example.network.RoomProtocol.encodePrepareTrack(
+        transferId = "tx_1",
+        track = testTrack,
+        fileHash = "abc123",
+        fileSize = 2048L,
+        fileExt = "mp3",
+        hasBinary = true,
+        audioDownloadUrl = "http://192.168.1.50:45899/audio/abc123"
+      )
+    )
+    assertEquals("http://192.168.1.50:45899/audio/abc123", prepareJson.getString("audioDownloadUrl"))
+
     val syncPlayJson = org.json.JSONObject(
-      com.example.bluetooth.BluetoothRoomManager.RoomProtocol.encodeSyncPlay(
+      com.example.network.RoomProtocol.encodeSyncPlay(
         track = testTrack,
         positionMs = 12500L,
         speed = 1.25f,
         isPlaying = true,
-        syncDelayMs = 220L
+        syncDelayMs = 180L
       )
     )
-    val parsedCmd = com.example.bluetooth.BluetoothRoomManager.RoomProtocol.parseSyncCommand(syncPlayJson)
+    val parsedCmd = com.example.network.RoomProtocol.parseSyncCommand(syncPlayJson)
     assertNotNull(parsedCmd)
     assertEquals("SYNC_PLAY", parsedCmd?.action)
     assertEquals("Sunset Rhythm", parsedCmd?.title)
@@ -303,25 +316,25 @@ class ExampleRobolectricTest {
       localFilePath = tempSong.absolutePath
     )
 
-    val payload = com.example.bluetooth.RoomProtocol.resolveTrackAudioPayload(context, hostTrack)
+    val payload = com.example.network.RoomProtocol.resolveTrackAudioPayload(context, hostTrack)
     assertNotNull(payload)
     assertEquals(2048L, payload!!.fileSize)
     assertEquals("mp3", payload.fileExt)
     assertEquals(64, payload.fileHash.length)
 
     val syncJson = org.json.JSONObject(
-      com.example.bluetooth.RoomProtocol.encodeSyncPlay(
+      com.example.network.RoomProtocol.encodeSyncPlay(
         track = hostTrack,
         positionMs = 0L,
         speed = 1.0f,
         isPlaying = true,
-        syncDelayMs = 240L,
+        syncDelayMs = 180L,
         fileHash = payload.fileHash,
         fileSize = payload.fileSize,
         fileExt = payload.fileExt
       )
     )
-    val parsed = com.example.bluetooth.RoomProtocol.parseSyncCommand(syncJson)
+    val parsed = com.example.network.RoomProtocol.parseSyncCommand(syncJson)
     assertNotNull(parsed)
     assertEquals(payload.fileHash, parsed?.fileHash)
     assertEquals(2048L, parsed?.fileSize)
@@ -334,5 +347,107 @@ class ExampleRobolectricTest {
     assertEquals("Host Exact Song", PlaybackManager.playbackState.value.currentTrack?.title)
 
     tempSong.delete()
+  }
+
+  @Test
+  fun `network room host transfers song A then switches to song B on guest over localhost TCP and HTTP`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val receivedCommands = java.util.concurrent.CopyOnWriteArrayList<com.example.model.RoomSyncCommand>()
+    val songAReady = java.util.concurrent.CountDownLatch(1)
+    val songBReady = java.util.concurrent.CountDownLatch(1)
+
+    val host = com.example.network.NetworkRoomManager(context = context)
+    val guest = com.example.network.NetworkRoomManager(
+      context = context,
+      onGuestSyncCommand = { cmd ->
+        receivedCommands.add(cmd)
+        if (cmd.action == "SYNC_PLAY" && cmd.title == "Song Alpha") songAReady.countDown()
+        if (cmd.action == "SYNC_PLAY" && cmd.title == "Song Beta") songBReady.countDown()
+      }
+    )
+
+    val songAFile = java.io.File(context.cacheDir, "net_song_a.mp3").apply {
+      writeBytes(ByteArray(3072) { ((it * 3 + 7) % 251).toByte() })
+    }
+    val songBFile = java.io.File(context.cacheDir, "net_song_b.mp3").apply {
+      writeBytes(ByteArray(4096) { ((it * 5 + 13) % 241).toByte() })
+    }
+
+    try {
+      val code = host.createRoom()
+      assertNotNull(code)
+
+      guest.joinRoom(code!!, "127.0.0.1")
+
+      val waitJoinDeadline = System.currentTimeMillis() + 5000L
+      while (System.currentTimeMillis() < waitJoinDeadline &&
+        (host.roomState.value.members.size < 2 || guest.roomState.value.role != com.example.model.RoomRole.GUEST)
+      ) {
+        Thread.sleep(50L)
+      }
+      assertEquals(2, host.roomState.value.members.size)
+
+      host.startRoom()
+      val waitStartDeadline = System.currentTimeMillis() + 3000L
+      while (System.currentTimeMillis() < waitStartDeadline &&
+        guest.roomState.value.phase != com.example.model.RoomPhase.PLAYING
+      ) {
+        Thread.sleep(50L)
+      }
+      assertEquals(com.example.model.RoomPhase.PLAYING, guest.roomState.value.phase)
+
+      fun awaitLatchPumpingMainLooper(latch: java.util.concurrent.CountDownLatch, timeoutMs: Long = 5000L): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val mainLooper = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        while (System.currentTimeMillis() < deadline && latch.count > 0L) {
+          mainLooper.idle()
+          Thread.sleep(25L)
+        }
+        mainLooper.idle()
+        return latch.count == 0L
+      }
+
+      val trackA = com.example.model.Track(
+        id = "device_1",
+        title = "Song Alpha",
+        artist = "Host",
+        durationSeconds = 180,
+        localFilePath = songAFile.absolutePath
+      )
+      val hostPlayedA = java.util.concurrent.CountDownLatch(1)
+      host.prepareAndPlayTrack(trackA, 0L, 1.0f) { hostPlayedA.countDown() }
+      assertTrue(songAReady.await(8, java.util.concurrent.TimeUnit.SECONDS))
+      assertTrue(awaitLatchPumpingMainLooper(hostPlayedA))
+
+      val cmdA = receivedCommands.last { it.title == "Song Alpha" }
+      assertNotNull(cmdA.localSyncedFilePath)
+      val downloadedA = java.io.File(cmdA.localSyncedFilePath!!)
+      assertTrue(downloadedA.exists())
+      assertEquals(3072L, downloadedA.length())
+
+      val trackB = com.example.model.Track(
+        id = "device_2",
+        title = "Song Beta",
+        artist = "Host",
+        durationSeconds = 210,
+        localFilePath = songBFile.absolutePath
+      )
+      val hostPlayedB = java.util.concurrent.CountDownLatch(1)
+      host.prepareAndPlayTrack(trackB, 0L, 1.0f) { hostPlayedB.countDown() }
+      assertTrue(songBReady.await(8, java.util.concurrent.TimeUnit.SECONDS))
+      assertTrue(awaitLatchPumpingMainLooper(hostPlayedB))
+
+      val cmdB = receivedCommands.last { it.title == "Song Beta" }
+      assertNotNull(cmdB.localSyncedFilePath)
+      val downloadedB = java.io.File(cmdB.localSyncedFilePath!!)
+      assertTrue(downloadedB.exists())
+      assertEquals(4096L, downloadedB.length())
+      assertTrue(cmdA.fileHash != cmdB.fileHash)
+    } finally {
+      guest.release()
+      host.release()
+      songAFile.delete()
+      songBFile.delete()
+    }
   }
 }

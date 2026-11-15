@@ -1,9 +1,5 @@
 package com.example.ui.components
 
-import android.bluetooth.BluetoothAdapter
-import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -26,8 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -38,6 +32,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,7 +61,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -75,150 +71,39 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.bluetooth.BluetoothRoomManager
-import com.example.model.BluetoothRoomState
 import com.example.model.RoomMember
 import com.example.model.RoomPhase
 import com.example.model.RoomRole
+import com.example.model.SyncRoomState
 import com.example.model.Track
 import com.example.ui.theme.AccentGreen
 import com.example.ui.theme.PlusBlue
 import com.example.ui.theme.PlusViolet
 
-private enum class PendingRoomAction {
-    NONE, CREATE, JOIN
-}
-
 @Composable
-fun BluetoothRoomCard(
-    roomState: BluetoothRoomState,
+fun NetworkRoomCard(
+    roomState: SyncRoomState,
     tracks: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
-    onRefreshBluetoothStatus: () -> Unit,
+    onRefreshNetworkStatus: () -> Unit,
     onCreateRoom: () -> Unit,
-    onJoinRoom: (String) -> Unit,
+    onJoinRoom: (code: String, hostIp: String?) -> Unit,
     onStartRoom: () -> Unit,
     onPlayTrackInRoom: (Track) -> Unit,
     onLeaveRoom: () -> Unit,
     onClearError: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
     var roomCodeInput by remember { mutableStateOf("") }
-    var pendingAction by remember { mutableStateOf(PendingRoomAction.NONE) }
+    var showOptionalIp by remember { mutableStateOf(false) }
+    var hostIpInput by remember { mutableStateOf("") }
     var copiedFeedback by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        onRefreshBluetoothStatus()
-    }
-
-    val discoverableLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        onRefreshBluetoothStatus()
-    }
-
-    fun requestDiscoverableIfPermitted() {
-        if (BluetoothRoomManager.hasBluetoothPermissions(context)) {
-            try {
-                val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
-                    putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300)
-                }
-                discoverableLauncher.launch(intent)
-            } catch (_: Exception) {}
-        }
-    }
-
-    val enableBluetoothLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) {
-        onRefreshBluetoothStatus()
-        if (BluetoothRoomManager.hasBluetoothPermissions(context)) {
-            when (pendingAction) {
-                PendingRoomAction.CREATE -> {
-                    pendingAction = PendingRoomAction.NONE
-                    onCreateRoom()
-                    requestDiscoverableIfPermitted()
-                }
-                PendingRoomAction.JOIN -> {
-                    pendingAction = PendingRoomAction.NONE
-                    if (roomCodeInput.length == 5) {
-                        onJoinRoom(roomCodeInput)
-                    }
-                }
-                PendingRoomAction.NONE -> Unit
-            }
-        }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        onRefreshBluetoothStatus()
-        if (BluetoothRoomManager.hasBluetoothPermissions(context)) {
-            val isBtOn = roomState.isBluetoothEnabled || try {
-                val bm = context.getSystemService(android.content.Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
-                bm?.adapter?.isEnabled == true
-            } catch (_: Exception) {
-                false
-            }
-            if (!isBtOn) {
-                try {
-                    enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-                } catch (_: Exception) {
-                    pendingAction = PendingRoomAction.NONE
-                }
-            } else {
-                when (pendingAction) {
-                    PendingRoomAction.CREATE -> {
-                        pendingAction = PendingRoomAction.NONE
-                        onCreateRoom()
-                        requestDiscoverableIfPermitted()
-                    }
-                    PendingRoomAction.JOIN -> {
-                        pendingAction = PendingRoomAction.NONE
-                        if (roomCodeInput.length == 5) {
-                            onJoinRoom(roomCodeInput)
-                        }
-                    }
-                    PendingRoomAction.NONE -> Unit
-                }
-            }
-        } else {
-            pendingAction = PendingRoomAction.NONE
-        }
-    }
-
-    fun ensureBluetoothAndRun(action: PendingRoomAction) {
-        onClearError()
-        onRefreshBluetoothStatus()
-        pendingAction = action
-        if (!BluetoothRoomManager.hasBluetoothPermissions(context)) {
-            permissionLauncher.launch(BluetoothRoomManager.requiredBluetoothPermissions())
-            return
-        }
-        if (!roomState.isBluetoothEnabled) {
-            try {
-                enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-            } catch (_: Exception) {
-                pendingAction = PendingRoomAction.NONE
-            }
-            return
-        }
-        pendingAction = PendingRoomAction.NONE
-        when (action) {
-            PendingRoomAction.CREATE -> {
-                onCreateRoom()
-                requestDiscoverableIfPermitted()
-            }
-            PendingRoomAction.JOIN -> {
-                onJoinRoom(roomCodeInput)
-            }
-            PendingRoomAction.NONE -> Unit
-        }
+        onRefreshNetworkStatus()
     }
 
     Card(
@@ -236,7 +121,7 @@ fun BluetoothRoomCard(
                 },
                 shape = RoundedCornerShape(18.dp)
             )
-            .testTag("bluetooth_room_card")
+            .testTag("network_room_card")
     ) {
         Column(
             modifier = Modifier
@@ -265,11 +150,11 @@ fun BluetoothRoomCard(
                     ) {
                         Icon(
                             imageVector = if (roomState.phase != RoomPhase.IDLE) {
-                                Icons.Default.BluetoothConnected
+                                Icons.Default.WifiTethering
                             } else {
-                                Icons.Default.Bluetooth
+                                Icons.Default.Wifi
                             },
-                            contentDescription = "Bluetooth Multi-Device Room",
+                            contentDescription = "Network Multi-Device Room",
                             tint = if (roomState.phase != RoomPhase.IDLE) PlusBlue else PlusViolet,
                             modifier = Modifier.size(21.dp)
                         )
@@ -283,25 +168,22 @@ fun BluetoothRoomCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Play the same song simultaneously via Bluetooth",
+                            text = "Play the exact same song over Wi-Fi or Hotspot",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                // Live Bluetooth Status Pill
                 val statusLabel = when {
-                    !roomState.isBluetoothSupported -> "No BT"
-                    !roomState.hasBluetoothPermission -> "Permit"
-                    !roomState.isBluetoothEnabled -> "BT Off"
                     roomState.phase == RoomPhase.PLAYING -> "Live Sync"
                     roomState.phase == RoomPhase.LOBBY -> "Lobby"
-                    else -> "BT Ready"
+                    roomState.isNetworkReady -> "Net Ready"
+                    else -> "Offline"
                 }
                 val statusColor = when {
-                    !roomState.isBluetoothSupported || !roomState.hasBluetoothPermission || !roomState.isBluetoothEnabled -> MaterialTheme.colorScheme.error
                     roomState.phase == RoomPhase.PLAYING -> AccentGreen
+                    !roomState.isNetworkReady -> MaterialTheme.colorScheme.error
                     else -> PlusBlue
                 }
 
@@ -319,16 +201,13 @@ fun BluetoothRoomCard(
                 }
             }
 
-            // Bluetooth Permission / Adapter Helper Banner (when idle & Bluetooth not yet ready)
-            if (roomState.phase == RoomPhase.IDLE &&
-                roomState.isBluetoothSupported &&
-                (!roomState.hasBluetoothPermission || !roomState.isBluetoothEnabled)
-            ) {
+            // Network Hint Banner when disconnected from Wi-Fi/Hotspot
+            if (roomState.phase == RoomPhase.IDLE && !roomState.isNetworkReady) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = PlusBlue.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, PlusBlue.copy(alpha = 0.25f)),
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -339,36 +218,19 @@ fun BluetoothRoomCard(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = if (!roomState.hasBluetoothPermission) {
-                                "Allow Bluetooth so devices can connect"
-                            } else {
-                                "Enable Bluetooth on this device"
-                            },
+                            text = "Connect both devices to the same Wi-Fi or Mobile Hotspot",
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = { ensureBluetoothAndRun(PendingRoomAction.NONE) },
-                            colors = ButtonDefaults.buttonColors(containerColor = PlusBlue),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("enable_bluetooth_button")
-                        ) {
-                            Text(
-                                text = if (!roomState.hasBluetoothPermission) "Allow BT" else "Turn On",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
-                            )
+                        TextButton(onClick = onRefreshNetworkStatus) {
+                            Text("Retry", fontWeight = FontWeight.Bold, color = PlusBlue)
                         }
                     }
                 }
             }
 
-            // Error message banner
+            // Error banner
             AnimatedVisibility(visible = !roomState.errorMessage.isNullOrBlank()) {
                 Column {
                     Spacer(modifier = Modifier.height(10.dp))
@@ -409,10 +271,12 @@ fun BluetoothRoomCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             if (roomState.phase == RoomPhase.IDLE) {
-                // --- CREATE ROOM OR JOIN BY 5-DIGIT CODE ---
                 Button(
-                    onClick = { ensureBluetoothAndRun(PendingRoomAction.CREATE) },
-                    enabled = roomState.isBluetoothSupported && !roomState.isConnecting,
+                    onClick = {
+                        onClearError()
+                        onCreateRoom()
+                    },
+                    enabled = !roomState.isConnecting,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PlusBlue),
                     modifier = Modifier
@@ -491,8 +355,11 @@ fun BluetoothRoomCard(
                     )
 
                     Button(
-                        onClick = { ensureBluetoothAndRun(PendingRoomAction.JOIN) },
-                        enabled = roomCodeInput.length == 5 && !roomState.isConnecting && roomState.isBluetoothSupported,
+                        onClick = {
+                            onClearError()
+                            onJoinRoom(roomCodeInput, if (showOptionalIp) hostIpInput else null)
+                        },
+                        enabled = roomCodeInput.length == 5 && !roomState.isConnecting,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PlusViolet),
                         modifier = Modifier
@@ -512,15 +379,48 @@ fun BluetoothRoomCard(
                     }
                 }
 
+                // Optional Host IP fallback toggle (for restrictive Wi-Fi networks)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = { showOptionalIp = !showOptionalIp },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Text(
+                            text = if (showOptionalIp) "Hide Host IP" else "Optional: Enter Host IP",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PlusBlue
+                        )
+                    }
+                }
+
+                AnimatedVisibility(visible = showOptionalIp) {
+                    OutlinedTextField(
+                        value = hostIpInput,
+                        onValueChange = { hostIpInput = it },
+                        label = { Text("Host IP (shown on Host's Room card)") },
+                        placeholder = { Text("e.g. 192.168.1.25") },
+                        singleLine = true,
+                        enabled = !roomState.isConnecting,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .testTag("room_host_ip_input")
+                    )
+                }
+
                 if (roomState.isConnecting) {
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = roomState.statusMessage ?: "Searching nearby Bluetooth devices...",
+                            text = roomState.statusMessage ?: "Searching local network for Room...",
                             style = MaterialTheme.typography.bodySmall,
                             color = PlusBlue,
                             modifier = Modifier.weight(1f)
@@ -536,7 +436,6 @@ fun BluetoothRoomCard(
                 }
             } else {
                 // --- ACTIVE ROOM (LOBBY OR PLAYING) ---
-                // 5-Digit Code Display Banner
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = PlusBlue.copy(alpha = 0.1f),
@@ -567,20 +466,18 @@ fun BluetoothRoomCard(
                                 )
                             }
 
-                            if (roomState.role == RoomRole.HOST) {
+                            roomState.hostIpAddress?.let { ip ->
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { requestDiscoverableIfPermitted() }
+                                    color = MaterialTheme.colorScheme.surface
                                 ) {
                                     Text(
-                                        text = "Make Discoverable",
+                                        text = "IP: $ip",
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = PlusBlue,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                     )
                                 }
                             }
@@ -655,7 +552,6 @@ fun BluetoothRoomCard(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // People in Room Roster
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -683,11 +579,11 @@ fun BluetoothRoomCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     roomState.members.forEach { member ->
-                        RoomMemberRow(member = member)
+                        NetworkRoomMemberRow(member = member)
                     }
                     if (roomState.role == RoomRole.HOST && roomState.members.size <= 1) {
                         Text(
-                            text = "Ask 2–3 friends to open Settings on their phones, enable Bluetooth, enter ${roomState.roomCode}, and tap Join.",
+                            text = "Connect 2–3 devices to the same Wi-Fi or Hotspot, enter code ${roomState.roomCode} in Settings, and tap Join.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp)
@@ -697,7 +593,6 @@ fun BluetoothRoomCard(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Host Start Room Button (in LOBBY) OR Song Chooser (in PLAYING)
                 if (roomState.role == RoomRole.HOST) {
                     if (roomState.phase == RoomPhase.LOBBY) {
                         Button(
@@ -801,7 +696,6 @@ fun BluetoothRoomCard(
                         }
                     }
                 } else {
-                    // Guest Room view
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = if (roomState.phase == RoomPhase.PLAYING) {
@@ -861,7 +755,7 @@ fun BluetoothRoomCard(
 }
 
 @Composable
-private fun RoomMemberRow(member: RoomMember) {
+private fun NetworkRoomMemberRow(member: RoomMember) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),

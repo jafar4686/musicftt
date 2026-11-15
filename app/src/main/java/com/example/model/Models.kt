@@ -159,14 +159,14 @@ data class RoomSyncCommand(
     val localSyncedFilePath: String? = null
 )
 
-data class BluetoothRoomState(
+data class SyncRoomState(
     val role: RoomRole = RoomRole.NONE,
     val phase: RoomPhase = RoomPhase.IDLE,
     val roomCode: String = "",
     val members: List<RoomMember> = emptyList(),
-    val isBluetoothSupported: Boolean = true,
-    val isBluetoothEnabled: Boolean = false,
-    val hasBluetoothPermission: Boolean = false,
+    val isNetworkReady: Boolean = true,
+    val hostIpAddress: String? = null,
+    val networkLabel: String = "Wi-Fi / Hotspot",
     val isConnecting: Boolean = false,
     val isDiscovering: Boolean = false,
     val isTransferringTrack: Boolean = false,

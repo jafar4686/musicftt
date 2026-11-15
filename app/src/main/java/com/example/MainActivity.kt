@@ -304,12 +304,12 @@ fun MainScreenContent(
                         tracks = tracks,
                         currentTrack = playbackState.currentTrack,
                         isPlaying = playbackState.isPlaying,
-                        onRefreshBluetoothStatus = { viewModel.refreshBluetoothStatus() },
-                        onCreateRoom = { viewModel.createBluetoothRoom() },
-                        onJoinRoom = { code -> viewModel.joinBluetoothRoom(code) },
-                        onStartRoom = { viewModel.startBluetoothRoom() },
+                        onRefreshNetworkStatus = { viewModel.refreshNetworkStatus() },
+                        onCreateRoom = { viewModel.createNetworkRoom() },
+                        onJoinRoom = { code, hostIp -> viewModel.joinNetworkRoom(code, hostIp) },
+                        onStartRoom = { viewModel.startNetworkRoom() },
                         onPlayTrackInRoom = { track -> viewModel.playTrackInRoom(track) },
-                        onLeaveRoom = { viewModel.leaveBluetoothRoom() },
+                        onLeaveRoom = { viewModel.leaveNetworkRoom() },
                         onClearRoomError = { viewModel.clearRoomFeedback() }
                     )
                 }
