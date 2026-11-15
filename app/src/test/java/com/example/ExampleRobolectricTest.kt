@@ -185,36 +185,30 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `night and day timer schedule evaluates morning day and dark modes correctly`() {
+  fun `theme mode persists across day morning and dark modes`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val repository = MusicRepository(context)
 
-    val schedule = com.example.model.ThemeTimerSettings(
-      isAutoTimerEnabled = true,
-      morningStartHour = 6,
-      morningStartMinute = 0,
-      dayStartHour = 9,
-      dayStartMinute = 0,
-      nightStartHour = 19,
-      nightStartMinute = 30
-    )
-    repository.updateThemeTimerSettings(schedule)
+    repository.saveManualThemeMode(com.example.model.AppThemeMode.MORNING)
+    assertEquals(com.example.model.AppThemeMode.MORNING, repository.loadManualThemeMode())
 
-    val loaded = repository.themeTimerSettings.value
-    assertTrue(loaded.isAutoTimerEnabled)
-    assertEquals(6, loaded.morningStartHour)
-    assertEquals(9, loaded.dayStartHour)
-    assertEquals(19, loaded.nightStartHour)
-    assertEquals(30, loaded.nightStartMinute)
+    repository.saveManualThemeMode(com.example.model.AppThemeMode.DARK)
+    assertEquals(com.example.model.AppThemeMode.DARK, repository.loadManualThemeMode())
 
-    // Morning check (7:15 AM -> MORNING)
-    assertEquals(com.example.model.AppThemeMode.MORNING, loaded.resolveThemeMode(7, 15))
-    // Day check (12:00 PM -> DAY)
-    assertEquals(com.example.model.AppThemeMode.DAY, loaded.resolveThemeMode(12, 0))
-    // Evening boundary check (7:30 PM -> DARK)
-    assertEquals(com.example.model.AppThemeMode.DARK, loaded.resolveThemeMode(19, 30))
-    // Late night wrap-around check (2:15 AM -> DARK)
-    assertEquals(com.example.model.AppThemeMode.DARK, loaded.resolveThemeMode(2, 15))
-    assertEquals(true, loaded.isNightTime(2, 15))
+    repository.saveManualThemeMode(com.example.model.AppThemeMode.DAY)
+    assertEquals(com.example.model.AppThemeMode.DAY, repository.loadManualThemeMode())
+  }
+
+  @Test
+  fun `shared text payload extracts clean tiktok and youtube urls`() {
+    val tiktokShare = "Check out this cool track! https://vm.tiktok.com/ZM6abc123/ #music #fyp"
+    val extractedTikTok = com.example.data.LinkDetector.extractFirstUrl(tiktokShare)
+    assertEquals("https://vm.tiktok.com/ZM6abc123/", extractedTikTok)
+    assertEquals(com.example.data.LinkSource.TIKTOK, com.example.data.LinkDetector.detectSource(extractedTikTok!!))
+
+    val youtubeShare = "Listen to this: https://youtu.be/dQw4w9WgXcQ?si=test"
+    val extractedYt = com.example.data.LinkDetector.extractFirstUrl(youtubeShare)
+    assertEquals("https://youtu.be/dQw4w9WgXcQ?si=test", extractedYt)
+    assertEquals(com.example.data.LinkSource.YOUTUBE, com.example.data.LinkDetector.detectSource(extractedYt!!))
   }
 }

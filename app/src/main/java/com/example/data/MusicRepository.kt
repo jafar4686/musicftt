@@ -14,7 +14,6 @@ import com.example.model.AppThemeMode
 import com.example.model.DownloadItem
 import com.example.model.DownloadStatus
 import com.example.model.Playlist
-import com.example.model.ThemeTimerSettings
 import com.example.model.Track
 import com.example.model.UserProfile
 import kotlinx.coroutines.CoroutineScope
@@ -90,9 +89,6 @@ class MusicRepository(private val context: Context) {
     )
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
 
-    private val _themeTimerSettings = MutableStateFlow(loadThemeTimerSettings())
-    val themeTimerSettings: StateFlow<ThemeTimerSettings> = _themeTimerSettings.asStateFlow()
-
     init {
         loadPlayCounts()
         // Automatically scan existing downloaded tracks in internal storage
@@ -102,31 +98,6 @@ class MusicRepository(private val context: Context) {
         if (scanned == 0) {
             ensureStarterTracksIfEmpty()
         }
-    }
-
-    private fun loadThemeTimerSettings(): ThemeTimerSettings {
-        return ThemeTimerSettings(
-            isAutoTimerEnabled = prefs.getBoolean("auto_theme_timer_enabled", false),
-            morningStartHour = prefs.getInt("morning_start_hour", 6),
-            morningStartMinute = prefs.getInt("morning_start_minute", 0),
-            dayStartHour = prefs.getInt("day_start_hour", 9),
-            dayStartMinute = prefs.getInt("day_start_minute", 0),
-            nightStartHour = prefs.getInt("night_start_hour", 19),
-            nightStartMinute = prefs.getInt("night_start_minute", 0)
-        )
-    }
-
-    fun updateThemeTimerSettings(settings: ThemeTimerSettings) {
-        _themeTimerSettings.value = settings
-        prefs.edit()
-            .putBoolean("auto_theme_timer_enabled", settings.isAutoTimerEnabled)
-            .putInt("morning_start_hour", settings.morningStartHour)
-            .putInt("morning_start_minute", settings.morningStartMinute)
-            .putInt("day_start_hour", settings.dayStartHour)
-            .putInt("day_start_minute", settings.dayStartMinute)
-            .putInt("night_start_hour", settings.nightStartHour)
-            .putInt("night_start_minute", settings.nightStartMinute)
-            .apply()
     }
 
     fun saveManualThemeMode(mode: AppThemeMode) {

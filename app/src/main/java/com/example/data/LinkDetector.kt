@@ -35,6 +35,26 @@ object LinkDetector {
         return hostPart.contains(".") && hostPart.length >= 4
     }
 
+    /**
+     * Extracts the first valid http/https URL from shared text payloads
+     * (e.g., TikTok shares like "Check this out! https://vm.tiktok.com/ZM6abc123/ #fyp").
+     */
+    fun extractFirstUrl(rawText: String?): String? {
+        if (rawText.isNullOrBlank()) return null
+        val urlMatcher = Pattern.compile(
+            "https?://[^\\s<>\"'\\]\\)]+",
+            Pattern.CASE_INSENSITIVE
+        ).matcher(rawText)
+        while (urlMatcher.find()) {
+            val candidate = urlMatcher.group().trimEnd('.', ',', ';', '!', '?')
+            if (isValidMediaInput(candidate)) {
+                return candidate
+            }
+        }
+        val normalized = normalizeUrl(rawText)
+        return if (isValidMediaInput(normalized)) normalized else null
+    }
+
     fun detectSource(rawUrl: String): LinkSource {
         val url = unwrapGoogleUrl(normalizeUrl(rawUrl)).lowercase()
         return when {

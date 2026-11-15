@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,30 +25,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WbTwilight
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,36 +48,22 @@ import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.R
 import com.example.model.AppThemeMode
-import com.example.model.ThemeTimerSettings
 import com.example.ui.theme.AccentOrange
 import com.example.ui.theme.MorningAmber
 import com.example.ui.theme.PlusBlue
 import com.example.ui.theme.PlusViolet
 
-private enum class EditingTimerTarget {
-    MORNING, DAY, NIGHT
-}
-
 /**
  * Settings screen for ASD MUSIC featuring:
- * - Theme Mode Switcher (Day, Morning, Dark) moved cleanly into Settings
- * - Night & Day Timer scheduler for automatic switching
+ * - Theme Mode Switcher (Day, Morning, Dark)
  * - App Version card (v4.8) at the bottom
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     themeMode: AppThemeMode = AppThemeMode.DAY,
-    themeTimerSettings: ThemeTimerSettings = ThemeTimerSettings(),
     onSelectThemeMode: (AppThemeMode) -> Unit = {},
-    onSetAutoTimerEnabled: (Boolean) -> Unit = {},
-    onSetMorningStartTime: (Int, Int) -> Unit = { _, _ -> },
-    onSetDayStartTime: (Int, Int) -> Unit = { _, _ -> },
-    onSetNightStartTime: (Int, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    var editingTarget by remember { mutableStateOf<EditingTimerTarget?>(null) }
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -133,7 +104,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Theme Mode & Night/Day Timer Card
+        // Theme Mode Card (Day, Morning, Dark)
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(
@@ -147,14 +118,13 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
                     shape = RoundedCornerShape(18.dp)
                 )
-                .testTag("night_day_timer_card")
+                .testTag("theme_mode_card")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
-                // Section Header: Theme Mode Switcher
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -199,7 +169,6 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 3-Way Mode Selector (Day | Morning | Dark)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -234,149 +203,6 @@ fun SettingsScreen(
                             .weight(1f)
                             .testTag("theme_mode_dark_button")
                     )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Night & Day Auto Timer Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(PlusBlue.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Schedule,
-                                contentDescription = "Night and Day Timer",
-                                tint = PlusBlue,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Night & Day Timer",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Auto-switch Morning, Day & Dark by time",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Switch(
-                        checked = themeTimerSettings.isAutoTimerEnabled,
-                        onCheckedChange = onSetAutoTimerEnabled,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PlusBlue,
-                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        modifier = Modifier.testTag("auto_theme_timer_switch")
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Morning Start Time Selector
-                TimerTimeRow(
-                    title = "Morning Mode Starts",
-                    subtitle = "Warm sunrise theme",
-                    formattedTime = themeTimerSettings.formatTime(
-                        themeTimerSettings.morningStartHour,
-                        themeTimerSettings.morningStartMinute
-                    ),
-                    icon = Icons.Default.WbTwilight,
-                    accentColor = MorningAmber,
-                    enabled = themeTimerSettings.isAutoTimerEnabled,
-                    onClick = { editingTarget = EditingTimerTarget.MORNING },
-                    modifier = Modifier.testTag("morning_timer_row")
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Day Start Time Selector
-                TimerTimeRow(
-                    title = "Day Mode Starts",
-                    subtitle = "Pure white light theme",
-                    formattedTime = themeTimerSettings.formatTime(
-                        themeTimerSettings.dayStartHour,
-                        themeTimerSettings.dayStartMinute
-                    ),
-                    icon = Icons.Default.LightMode,
-                    accentColor = AccentOrange,
-                    enabled = themeTimerSettings.isAutoTimerEnabled,
-                    onClick = { editingTarget = EditingTimerTarget.DAY },
-                    modifier = Modifier.testTag("day_timer_row")
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Night Start Time Selector
-                TimerTimeRow(
-                    title = "Dark Mode Starts",
-                    subtitle = "Sleek dark night theme",
-                    formattedTime = themeTimerSettings.formatTime(
-                        themeTimerSettings.nightStartHour,
-                        themeTimerSettings.nightStartMinute
-                    ),
-                    icon = Icons.Default.DarkMode,
-                    accentColor = PlusViolet,
-                    enabled = themeTimerSettings.isAutoTimerEnabled,
-                    onClick = { editingTarget = EditingTimerTarget.NIGHT },
-                    modifier = Modifier.testTag("night_timer_row")
-                )
-
-                AnimatedVisibility(visible = themeTimerSettings.isAutoTimerEnabled) {
-                    Column {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = PlusBlue.copy(alpha = 0.08f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            val morningStr = themeTimerSettings.formatTime(
-                                themeTimerSettings.morningStartHour,
-                                themeTimerSettings.morningStartMinute
-                            )
-                            val dayStr = themeTimerSettings.formatTime(
-                                themeTimerSettings.dayStartHour,
-                                themeTimerSettings.dayStartMinute
-                            )
-                            val nightStr = themeTimerSettings.formatTime(
-                                themeTimerSettings.nightStartHour,
-                                themeTimerSettings.nightStartMinute
-                            )
-                            Text(
-                                text = "Scheduled: Morning $morningStr • Day $dayStr • Dark $nightStr",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = PlusBlue,
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp, vertical = 9.dp)
-                                    .testTag("timer_schedule_summary")
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -461,68 +287,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
     }
-
-    // Material 3 Time Picker Dialog for Morning / Day / Night Start Time
-    val currentTarget = editingTarget
-    if (currentTarget != null) {
-        val (initialHour, initialMinute) = when (currentTarget) {
-            EditingTimerTarget.MORNING -> themeTimerSettings.morningStartHour to themeTimerSettings.morningStartMinute
-            EditingTimerTarget.DAY -> themeTimerSettings.dayStartHour to themeTimerSettings.dayStartMinute
-            EditingTimerTarget.NIGHT -> themeTimerSettings.nightStartHour to themeTimerSettings.nightStartMinute
-        }
-        val pickerState = rememberTimePickerState(
-            initialHour = initialHour,
-            initialMinute = initialMinute,
-            is24Hour = false
-        )
-
-        AlertDialog(
-            onDismissRequest = { editingTarget = null },
-            title = {
-                Text(
-                    text = when (currentTarget) {
-                        EditingTimerTarget.MORNING -> "Set Morning Mode Start Time"
-                        EditingTimerTarget.DAY -> "Set Day Mode Start Time"
-                        EditingTimerTarget.NIGHT -> "Set Dark Mode Start Time"
-                    },
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TimePicker(
-                        state = pickerState,
-                        colors = TimePickerDefaults.colors(
-                            clockDialSelectedContentColor = Color.White,
-                            selectorColor = PlusBlue
-                        )
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        when (currentTarget) {
-                            EditingTimerTarget.MORNING -> onSetMorningStartTime(pickerState.hour, pickerState.minute)
-                            EditingTimerTarget.DAY -> onSetDayStartTime(pickerState.hour, pickerState.minute)
-                            EditingTimerTarget.NIGHT -> onSetNightStartTime(pickerState.hour, pickerState.minute)
-                        }
-                        editingTarget = null
-                    }
-                ) {
-                    Text("Save", fontWeight = FontWeight.Bold, color = PlusBlue)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingTarget = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -563,92 +327,6 @@ private fun ThemeModeChip(
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 color = if (selected) accentColor else MaterialTheme.colorScheme.onSurface
             )
-        }
-    }
-}
-
-@Composable
-private fun TimerTimeRow(
-    title: String,
-    subtitle: String,
-    formattedTime: String,
-    icon: ImageVector,
-    accentColor: Color,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.7f else 0.4f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (enabled) accentColor.copy(alpha = 0.25f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-        ),
-        modifier = modifier
-            .fillMaxWidth()
-            .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = accentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
-            ) {
-                Text(
-                    text = formattedTime,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontFeatureSettings = "tnum"
-                    ),
-                    fontWeight = FontWeight.Bold,
-                    color = if (enabled) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                )
-            }
         }
     }
 }

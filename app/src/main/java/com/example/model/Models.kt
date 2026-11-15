@@ -39,41 +39,6 @@ enum class AppThemeMode(val displayName: String) {
     DARK("Dark")
 }
 
-data class ThemeTimerSettings(
-    val isAutoTimerEnabled: Boolean = false,
-    val morningStartHour: Int = 6,
-    val morningStartMinute: Int = 0,
-    val dayStartHour: Int = 9,
-    val dayStartMinute: Int = 0,
-    val nightStartHour: Int = 19,
-    val nightStartMinute: Int = 0
-) {
-    fun resolveThemeMode(hourOfDay: Int, minute: Int): AppThemeMode {
-        val nowMinutes = hourOfDay * 60 + minute
-        val checkpoints = listOf(
-            (morningStartHour * 60 + morningStartMinute) to AppThemeMode.MORNING,
-            (dayStartHour * 60 + dayStartMinute) to AppThemeMode.DAY,
-            (nightStartHour * 60 + nightStartMinute) to AppThemeMode.DARK
-        ).sortedBy { it.first }
-        val matched = checkpoints.lastOrNull { it.first <= nowMinutes } ?: checkpoints.last()
-        return matched.second
-    }
-
-    fun isNightTime(hourOfDay: Int, minute: Int): Boolean {
-        return resolveThemeMode(hourOfDay, minute) == AppThemeMode.DARK
-    }
-
-    fun formatTime(hour: Int, minute: Int): String {
-        val period = if (hour < 12) "AM" else "PM"
-        val h12 = when {
-            hour == 0 -> 12
-            hour > 12 -> hour - 12
-            else -> hour
-        }
-        return "%02d:%02d %s".format(h12, minute, period)
-    }
-}
-
 data class Playlist(
     val id: String,
     val title: String,

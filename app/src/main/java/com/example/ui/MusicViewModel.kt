@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.LinkDetector
 import com.example.data.MusicRepository
 import com.example.model.AnimatedArtStyle
 import com.example.model.AppThemeMode
@@ -11,20 +12,15 @@ import com.example.model.EqualizerPreset
 import com.example.model.LarkSoundSettings
 import com.example.model.PlaybackState
 import com.example.model.Playlist
-import com.example.model.ThemeTimerSettings
 import com.example.model.Track
 import com.example.model.UserProfile
 import com.example.service.PlaybackManager
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import java.util.Calendar
 
 enum class AppScreen {
     SONGS, SETTINGS
@@ -41,15 +37,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val downloads: StateFlow<List<DownloadItem>> = repository.downloads
     val favoriteTrackIds: StateFlow<Set<String>> = repository.favoriteTrackIds
     val userProfile: StateFlow<UserProfile> = repository.userProfile
-    val themeTimerSettings: StateFlow<ThemeTimerSettings> = repository.themeTimerSettings
 
     private val _themeMode = MutableStateFlow(AppThemeMode.DAY)
     val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
 
     private val _isDarkMode = MutableStateFlow(false) // Default is pure white as requested!
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
-
-    private var lastTimerAppliedThemeMode: AppThemeMode? = null
 
     private val _showSoundSettings = MutableStateFlow(false)
     val showSoundSettings: StateFlow<Boolean> = _showSoundSettings.asStateFlow()
@@ -62,6 +55,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _showAddSongDialog = MutableStateFlow(false)
     val showAddSongDialog: StateFlow<Boolean> = _showAddSongDialog.asStateFlow()
+
+    private val _pendingSharedUrl = MutableStateFlow<String?>(null)
+    val pendingSharedUrl: StateFlow<String?> = _pendingSharedUrl.asStateFlow()
 
     private val _snackMessage = MutableStateFlow<String?>(null)
     val snackMessage: StateFlow<String?> = _snackMessage.asStateFlow()
@@ -79,35 +75,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             PlaybackManager.updateCurrentTrackPlayCount(trackId, newCount)
         }
 
-        val initialTimer = repository.themeTimerSettings.value
-        if (initialTimer.isAutoTimerEnabled) {
-            evaluateThemeTimerNow(forceApply = true)
-        } else {
-            val savedMode = repository.loadManualThemeMode()
-            _themeMode.value = savedMode
-            _isDarkMode.value = savedMode == AppThemeMode.DARK
-        }
-
-        viewModelScope.launch {
-            while (isActive) {
-                delay(15_000L)
-                evaluateThemeTimerNow(forceApply = false)
-            }
-        }
-    }
-
-    fun evaluateThemeTimerNow(forceApply: Boolean = false) {
-        val settings = repository.themeTimerSettings.value
-        if (!settings.isAutoTimerEnabled) return
-        val cal = Calendar.getInstance()
-        val hour = cal.get(Calendar.HOUR_OF_DAY)
-        val minute = cal.get(Calendar.MINUTE)
-        val targetMode = settings.resolveThemeMode(hour, minute)
-        if (forceApply || lastTimerAppliedThemeMode != targetMode) {
-            lastTimerAppliedThemeMode = targetMode
-            _themeMode.value = targetMode
-            _isDarkMode.value = targetMode == AppThemeMode.DARK
-        }
+        val savedMode = repository.loadManualThemeMode()
+        _themeMode.value = savedMode
+        _isDarkMode.value = savedMode == AppThemeMode.DARK
     }
 
     fun setThemeMode(mode: AppThemeMode) {
@@ -125,51 +95,32 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         setThemeMode(if (dark) AppThemeMode.DARK else AppThemeMode.DAY)
     }
 
-    fun setAutoThemeTimerEnabled(enabled: Boolean) {
-        val updated = repository.themeTimerSettings.value.copy(isAutoTimerEnabled = enabled)
-        repository.updateThemeTimerSettings(updated)
-        if (enabled) {
-            lastTimerAppliedThemeMode = null
-            evaluateThemeTimerNow(forceApply = true)
+    fun handleSharedLink(rawText: String?): Boolean {
+        val extractedUrl = LinkDetector.extractFirstUrl(rawText)
+        return if (extractedUrl != null) {
+            _currentScreen.value = AppScreen.SONGS
+            _pendingSharedUrl.value = extractedUrl
+            true
         } else {
-            lastTimerAppliedThemeMode = null
+            if (!rawText.isNullOrBlank()) {
+                _snackMessage.value = "Could not find a valid media link in the shared text"
+            }
+            false
         }
     }
 
-    fun setMorningStartTime(hour: Int, minute: Int) {
-        val updated = repository.themeTimerSettings.value.copy(
-            morningStartHour = hour.coerceIn(0, 23),
-            morningStartMinute = minute.coerceIn(0, 59)
-        )
-        repository.updateThemeTimerSettings(updated)
-        if (updated.isAutoTimerEnabled) {
-            lastTimerAppliedThemeMode = null
-            evaluateThemeTimerNow(forceApply = true)
-        }
+    fun dismissSharedLinkPrompt() {
+        _pendingSharedUrl.value = null
     }
 
-    fun setDayStartTime(hour: Int, minute: Int) {
-        val updated = repository.themeTimerSettings.value.copy(
-            dayStartHour = hour.coerceIn(0, 23),
-            dayStartMinute = minute.coerceIn(0, 59)
+    fun downloadSharedLink(url: String, isVideo: Boolean) {
+        _pendingSharedUrl.value = null
+        downloadAndPlayLink(
+            url = url,
+            title = null,
+            artist = null,
+            isVideo = isVideo
         )
-        repository.updateThemeTimerSettings(updated)
-        if (updated.isAutoTimerEnabled) {
-            lastTimerAppliedThemeMode = null
-            evaluateThemeTimerNow(forceApply = true)
-        }
-    }
-
-    fun setNightStartTime(hour: Int, minute: Int) {
-        val updated = repository.themeTimerSettings.value.copy(
-            nightStartHour = hour.coerceIn(0, 23),
-            nightStartMinute = minute.coerceIn(0, 59)
-        )
-        repository.updateThemeTimerSettings(updated)
-        if (updated.isAutoTimerEnabled) {
-            lastTimerAppliedThemeMode = null
-            evaluateThemeTimerNow(forceApply = true)
-        }
     }
 
     fun openSoundSettings() {
