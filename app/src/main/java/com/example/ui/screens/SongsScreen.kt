@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -60,11 +61,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.model.BluetoothRoomState
+import com.example.model.RoomPhase
+import com.example.model.RoomRole
 import com.example.model.Track
 import com.example.ui.components.PlayCountBadge
 import com.example.ui.components.SongCoverArtView
 import com.example.ui.components.SpeedAdjustmentBar
 import com.example.ui.components.SpeedIndicatorButton
+import com.example.ui.theme.AccentGreen
 import com.example.ui.theme.PlusBlue
 import com.example.ui.theme.PlusViolet
 
@@ -83,6 +88,8 @@ fun SongsScreen(
     hasPermissions: Boolean,
     favoriteTrackIds: Set<String>,
     playbackSpeed: Float = 1.0f,
+    roomState: BluetoothRoomState = BluetoothRoomState(),
+    onOpenRoomSettings: () -> Unit = {},
     onSetPlaybackSpeed: (Float) -> Unit = {},
     onRequestPermissions: () -> Unit,
     onPlayTrack: (Track, List<Track>) -> Unit,
@@ -273,6 +280,68 @@ fun SongsScreen(
                     onSpeedChange = onSetPlaybackSpeed,
                     onClose = { showSpeedBar = false }
                 )
+
+                // Active Bluetooth Multi-Device Room Banner
+                if (roomState.phase != RoomPhase.IDLE) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (roomState.phase == RoomPhase.PLAYING) {
+                            AccentGreen.copy(alpha = 0.14f)
+                        } else {
+                            PlusBlue.copy(alpha = 0.12f)
+                        },
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (roomState.phase == RoomPhase.PLAYING) AccentGreen else PlusBlue
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onOpenRoomSettings() }
+                            .testTag("songs_active_room_banner")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.BluetoothConnected,
+                                    contentDescription = "Bluetooth Room Active",
+                                    tint = if (roomState.phase == RoomPhase.PLAYING) AccentGreen else PlusBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (roomState.role == RoomRole.HOST && roomState.phase == RoomPhase.PLAYING) {
+                                        "Room ${roomState.roomCode} (${roomState.members.size}) • Tap any song to play together"
+                                    } else {
+                                        "Room ${roomState.roomCode} • ${roomState.members.size} connected"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Open",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Black,
+                                color = if (roomState.phase == RoomPhase.PLAYING) AccentGreen else PlusBlue
+                            )
+                        }
+                    }
+                }
             }
         }
 

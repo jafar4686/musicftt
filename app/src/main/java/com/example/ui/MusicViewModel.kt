@@ -3,24 +3,32 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.bluetooth.BluetoothRoomManager
 import com.example.data.LinkDetector
 import com.example.data.MusicRepository
 import com.example.model.AnimatedArtStyle
 import com.example.model.AppThemeMode
+import com.example.model.BluetoothRoomState
 import com.example.model.DownloadItem
 import com.example.model.EqualizerPreset
 import com.example.model.LarkSoundSettings
 import com.example.model.PlaybackState
 import com.example.model.Playlist
+import com.example.model.RoomPhase
+import com.example.model.RoomRole
+import com.example.model.RoomSyncCommand
 import com.example.model.Track
 import com.example.model.UserProfile
 import com.example.service.PlaybackManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 enum class AppScreen {
     SONGS, SETTINGS
@@ -62,6 +70,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _snackMessage = MutableStateFlow<String?>(null)
     val snackMessage: StateFlow<String?> = _snackMessage.asStateFlow()
 
+    private val roomManager = BluetoothRoomManager(
+        context = application,
+        onGuestSyncCommand = { cmd ->
+            viewModelScope.launch(Dispatchers.Main) {
+                handleGuestSyncCommand(cmd)
+            }
+        },
+        onGuestRoomStarted = {
+            viewModelScope.launch(Dispatchers.Main) {
+                _snackMessage.value = "Room started! Host is choosing a song..."
+            }
+        },
+        onRoomEnded = { reason ->
+            viewModelScope.launch(Dispatchers.Main) {
+                _snackMessage.value = reason
+            }
+        }
+    )
+
+    val roomState: StateFlow<BluetoothRoomState> = roomManager.roomState
+
     val storageSizeFormatted: StateFlow<String> = repository.downloads.combine(repository.tracks) { dlList, _ ->
         val completedCount = dlList.count { it.status == com.example.model.DownloadStatus.COMPLETED }
         val sizeMb = completedCount * 5.4f + dlList.count { it.isVideo && it.status == com.example.model.DownloadStatus.COMPLETED } * 12.8f
@@ -75,9 +104,124 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             PlaybackManager.updateCurrentTrackPlayCount(trackId, newCount)
         }
 
+        PlaybackManager.isHostRoomActive = {
+            val rs = roomManager.roomState.value
+            rs.role == RoomRole.HOST && rs.phase == RoomPhase.PLAYING
+        }
+        PlaybackManager.onHostRoomPlaybackEvent = { event ->
+            when (event) {
+                is PlaybackManager.HostRoomPlaybackEvent.Play -> {
+                    roomManager.broadcastSyncPlay(
+                        track = event.track,
+                        positionMs = event.positionMs,
+                        speed = event.speed,
+                        isPlaying = event.isPlaying
+                    )
+                }
+                is PlaybackManager.HostRoomPlaybackEvent.Pause -> {
+                    roomManager.broadcastSyncPause(event.positionMs)
+                }
+                is PlaybackManager.HostRoomPlaybackEvent.Seek -> {
+                    roomManager.broadcastSyncSeek(event.positionMs, event.isPlaying)
+                }
+            }
+        }
+
         val savedMode = repository.loadManualThemeMode()
         _themeMode.value = savedMode
         _isDarkMode.value = savedMode == AppThemeMode.DARK
+    }
+
+    fun refreshBluetoothStatus() {
+        roomManager.refreshBluetoothStatus()
+    }
+
+    fun createBluetoothRoom() {
+        val code = roomManager.createRoom()
+        if (code != null) {
+            _snackMessage.value = "Room $code created! Share this 5-digit code to join."
+        }
+    }
+
+    fun joinBluetoothRoom(code: String) {
+        roomManager.joinRoom(code)
+    }
+
+    fun startBluetoothRoom() {
+        roomManager.startRoom()
+        _snackMessage.value = "Room started! Pick a song to play for everyone simultaneously."
+    }
+
+    fun playTrackInRoom(track: Track) {
+        val rs = roomManager.roomState.value
+        if (rs.role == RoomRole.HOST && rs.phase == RoomPhase.LOBBY) {
+            roomManager.startRoom()
+        }
+        playTrack(track, tracks.value)
+    }
+
+    fun leaveBluetoothRoom() {
+        roomManager.leaveOrCloseRoom()
+        _snackMessage.value = "Left Bluetooth Room"
+    }
+
+    fun clearRoomFeedback() {
+        roomManager.clearFeedback()
+    }
+
+    private fun handleGuestSyncCommand(cmd: RoomSyncCommand) {
+        when (cmd.action) {
+            "SYNC_PLAY" -> {
+                val resolvedTrack = resolveTrackForSync(cmd)
+                viewModelScope.launch(Dispatchers.Main) {
+                    if (cmd.syncDelayMs > 0L) {
+                        delay(cmd.syncDelayMs.coerceAtMost(400L))
+                    }
+                    PlaybackManager.applySyncedTrackPlayback(
+                        track = resolvedTrack,
+                        positionMs = cmd.positionMs,
+                        speed = cmd.speed,
+                        isPlaying = cmd.isPlaying,
+                        context = getApplication()
+                    )
+                }
+            }
+            "SYNC_PAUSE" -> {
+                PlaybackManager.applySyncedPause(cmd.positionMs, getApplication())
+            }
+            "SYNC_SEEK" -> {
+                PlaybackManager.applySyncedSeek(cmd.positionMs, cmd.isPlaying, getApplication())
+            }
+        }
+    }
+
+    private fun resolveTrackForSync(cmd: RoomSyncCommand): Track {
+        val library = tracks.value
+        val byId = cmd.trackId?.let { id -> library.firstOrNull { it.id == id } }
+        if (byId != null) return byId
+
+        val normTitle = cmd.title?.trim()?.lowercase()
+        val normArtist = cmd.artist?.trim()?.lowercase()
+        if (!normTitle.isNullOrBlank()) {
+            val exactMatch = library.firstOrNull {
+                it.title.trim().lowercase() == normTitle &&
+                    (normArtist.isNullOrBlank() || it.artist.trim().lowercase() == normArtist)
+            }
+            if (exactMatch != null) return exactMatch
+
+            val titleMatch = library.firstOrNull { it.title.trim().lowercase() == normTitle }
+            if (titleMatch != null) return titleMatch
+        }
+
+        return Track(
+            id = cmd.trackId ?: "room_sync_${System.currentTimeMillis()}",
+            title = cmd.title ?: "Shared Room Track",
+            artist = cmd.artist ?: "Room Host",
+            album = cmd.album ?: "Bluetooth Room Sync",
+            durationSeconds = cmd.durationSeconds.coerceAtLeast(10),
+            sourceUrl = cmd.sourceUrl,
+            isDownloaded = false
+        )
     }
 
     fun setThemeMode(mode: AppThemeMode) {
@@ -250,5 +394,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearSnackMessage() {
         _snackMessage.value = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        PlaybackManager.onHostRoomPlaybackEvent = null
+        PlaybackManager.isHostRoomActive = { false }
+        roomManager.release()
     }
 }

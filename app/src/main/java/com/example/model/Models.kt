@@ -126,3 +126,48 @@ data class LarkSoundSettings(
     val reverbEffect: String = "Studio" // Off, Studio, Club, Hall, Concert
 )
 
+enum class RoomRole {
+    NONE, HOST, GUEST
+}
+
+enum class RoomPhase {
+    IDLE, LOBBY, PLAYING
+}
+
+data class RoomMember(
+    val id: String,
+    val name: String,
+    val isHost: Boolean = false,
+    val address: String? = null
+)
+
+data class RoomSyncCommand(
+    val action: String,
+    val trackId: String? = null,
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val durationSeconds: Int = 180,
+    val sourceUrl: String? = null,
+    val positionMs: Long = 0L,
+    val speed: Float = 1.0f,
+    val isPlaying: Boolean = true,
+    val syncDelayMs: Long = 0L
+)
+
+data class BluetoothRoomState(
+    val role: RoomRole = RoomRole.NONE,
+    val phase: RoomPhase = RoomPhase.IDLE,
+    val roomCode: String = "",
+    val members: List<RoomMember> = emptyList(),
+    val isBluetoothSupported: Boolean = true,
+    val isBluetoothEnabled: Boolean = false,
+    val hasBluetoothPermission: Boolean = false,
+    val isConnecting: Boolean = false,
+    val isDiscovering: Boolean = false,
+    val statusMessage: String? = null,
+    val errorMessage: String? = null,
+    val currentSyncedTrackTitle: String? = null
+)
+
+

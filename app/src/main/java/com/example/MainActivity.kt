@@ -176,6 +176,7 @@ fun MainScreenContent(
     val pendingSharedUrl by viewModel.pendingSharedUrl.collectAsStateWithLifecycle()
     val snackMessage by viewModel.snackMessage.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val roomState by viewModel.roomState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -286,6 +287,8 @@ fun MainScreenContent(
                         hasPermissions = hasPermissions,
                         favoriteTrackIds = favoriteTrackIds,
                         playbackSpeed = soundSettings.playbackSpeed,
+                        roomState = roomState,
+                        onOpenRoomSettings = { viewModel.navigateTo(AppScreen.SETTINGS) },
                         onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
                         onRequestPermissions = onRequestPermissions,
                         onPlayTrack = { tr, list -> viewModel.playTrack(tr, list) },
@@ -296,7 +299,18 @@ fun MainScreenContent(
                 AppScreen.SETTINGS -> {
                     SettingsScreen(
                         themeMode = themeMode,
-                        onSelectThemeMode = { viewModel.setThemeMode(it) }
+                        onSelectThemeMode = { viewModel.setThemeMode(it) },
+                        roomState = roomState,
+                        tracks = tracks,
+                        currentTrack = playbackState.currentTrack,
+                        isPlaying = playbackState.isPlaying,
+                        onRefreshBluetoothStatus = { viewModel.refreshBluetoothStatus() },
+                        onCreateRoom = { viewModel.createBluetoothRoom() },
+                        onJoinRoom = { code -> viewModel.joinBluetoothRoom(code) },
+                        onStartRoom = { viewModel.startBluetoothRoom() },
+                        onPlayTrackInRoom = { track -> viewModel.playTrackInRoom(track) },
+                        onLeaveRoom = { viewModel.leaveBluetoothRoom() },
+                        onClearRoomError = { viewModel.clearRoomFeedback() }
                     )
                 }
             }

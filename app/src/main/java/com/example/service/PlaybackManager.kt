@@ -46,6 +46,24 @@ object PlaybackManager {
     private var lastTickWallTimeMs: Long = 0L
     private var onValidTrackPlayedListener: ((String) -> Unit)? = null
 
+    sealed class HostRoomPlaybackEvent {
+        data class Play(
+            val track: Track,
+            val positionMs: Long,
+            val speed: Float,
+            val isPlaying: Boolean
+        ) : HostRoomPlaybackEvent()
+
+        data class Pause(val positionMs: Long) : HostRoomPlaybackEvent()
+
+        data class Seek(val positionMs: Long, val isPlaying: Boolean) : HostRoomPlaybackEvent()
+    }
+
+    var isHostRoomActive: () -> Boolean = { false }
+    var onHostRoomPlaybackEvent: ((HostRoomPlaybackEvent) -> Unit)? = null
+    private var suppressRoomBroadcast: Boolean = false
+    private var syncStartJob: Job? = null
+
     fun setOnValidTrackPlayedListener(listener: ((String) -> Unit)?) {
         onValidTrackPlayedListener = listener
     }
@@ -209,12 +227,25 @@ object PlaybackManager {
                 currentArtStyle = track.animatedStyle
             )
         }
-        play(ctx)
+        if (!suppressRoomBroadcast && isHostRoomActive()) {
+            onHostRoomPlaybackEvent?.invoke(
+                HostRoomPlaybackEvent.Play(
+                    track = track,
+                    positionMs = 0L,
+                    speed = _soundSettings.value.playbackSpeed,
+                    isPlaying = true
+                )
+            )
+            play(ctx, startDelayMs = 220L)
+        } else {
+            play(ctx)
+        }
     }
 
-    fun play(context: Context? = null) {
+    fun play(context: Context? = null, startDelayMs: Long = 0L) {
         val ctx = context ?: appContext
         val track = _playbackState.value.currentTrack ?: return
+        syncStartJob?.cancel()
 
         try {
             if (wakeLock?.isHeld == false) {
@@ -223,8 +254,18 @@ object PlaybackManager {
         } catch (_: Exception) {}
 
         _playbackState.update { it.copy(isPlaying = true) }
-        audioEngine?.playTrack(track)
-        startProgressTracking()
+        if (startDelayMs > 0L) {
+            syncStartJob = scope.launch {
+                delay(startDelayMs)
+                if (_playbackState.value.isPlaying && _playbackState.value.currentTrack?.id == track.id) {
+                    audioEngine?.playTrack(track)
+                    startProgressTracking()
+                }
+            }
+        } else {
+            audioEngine?.playTrack(track)
+            startProgressTracking()
+        }
 
         // Trigger Foreground Service for notification bar & background playback
         ctx?.let { c ->
@@ -245,9 +286,16 @@ object PlaybackManager {
 
     fun pause(context: Context? = null) {
         val ctx = context ?: appContext
+        syncStartJob?.cancel()
         _playbackState.update { it.copy(isPlaying = false) }
         audioEngine?.pause()
         stopProgressTracking()
+
+        if (!suppressRoomBroadcast && isHostRoomActive()) {
+            onHostRoomPlaybackEvent?.invoke(
+                HostRoomPlaybackEvent.Pause(_playbackState.value.currentPositionMs)
+            )
+        }
 
         try {
             if (wakeLock?.isHeld == true) {
@@ -269,10 +317,23 @@ object PlaybackManager {
         if (_playbackState.value.isPlaying) {
             pause(context)
         } else {
-            if (_playbackState.value.currentTrack != null) {
-                audioEngine?.resume(_playbackState.value.currentTrack)
+            val curTrack = _playbackState.value.currentTrack
+            if (curTrack != null) {
+                audioEngine?.resume(curTrack)
                 _playbackState.update { it.copy(isPlaying = true) }
                 startProgressTracking()
+
+                if (!suppressRoomBroadcast && isHostRoomActive()) {
+                    onHostRoomPlaybackEvent?.invoke(
+                        HostRoomPlaybackEvent.Play(
+                            track = curTrack,
+                            positionMs = _playbackState.value.currentPositionMs,
+                            speed = _soundSettings.value.playbackSpeed,
+                            isPlaying = true
+                        )
+                    )
+                }
+
                 val ctx = context ?: appContext
                 ctx?.let { c ->
                     try {
@@ -310,7 +371,19 @@ object PlaybackManager {
                 currentArtStyle = nextTrack.animatedStyle
             )
         }
-        play(context)
+        if (!suppressRoomBroadcast && isHostRoomActive()) {
+            onHostRoomPlaybackEvent?.invoke(
+                HostRoomPlaybackEvent.Play(
+                    track = nextTrack,
+                    positionMs = 0L,
+                    speed = _soundSettings.value.playbackSpeed,
+                    isPlaying = true
+                )
+            )
+            play(context, startDelayMs = 220L)
+        } else {
+            play(context)
+        }
     }
 
     fun previous(context: Context? = null) {
@@ -331,7 +404,19 @@ object PlaybackManager {
                 currentArtStyle = prevTrack.animatedStyle
             )
         }
-        play(context)
+        if (!suppressRoomBroadcast && isHostRoomActive()) {
+            onHostRoomPlaybackEvent?.invoke(
+                HostRoomPlaybackEvent.Play(
+                    track = prevTrack,
+                    positionMs = 0L,
+                    speed = _soundSettings.value.playbackSpeed,
+                    isPlaying = true
+                )
+            )
+            play(context, startDelayMs = 220L)
+        } else {
+            play(context)
+        }
     }
 
     fun seekTo(positionMs: Long) {
@@ -355,6 +440,87 @@ object PlaybackManager {
         audioEngine?.seekTo(clampedPos)
         _playbackState.update {
             it.copy(currentPositionMs = clampedPos.coerceIn(0L, it.durationMs))
+        }
+        if (!suppressRoomBroadcast && isHostRoomActive()) {
+            onHostRoomPlaybackEvent?.invoke(
+                HostRoomPlaybackEvent.Seek(clampedPos, _playbackState.value.isPlaying)
+            )
+        }
+    }
+
+    fun applySyncedTrackPlayback(
+        track: Track,
+        positionMs: Long,
+        speed: Float,
+        isPlaying: Boolean,
+        context: Context? = null
+    ) {
+        val ctx = context ?: appContext
+        suppressRoomBroadcast = true
+        try {
+            setPlaybackSpeed(speed)
+            val sameTrack = _playbackState.value.currentTrack?.id == track.id
+            if (!sameTrack) {
+                resetPlaySession(track.id)
+                _playbackState.update {
+                    it.copy(
+                        currentTrack = track,
+                        currentPositionMs = positionMs.coerceAtLeast(0L),
+                        durationMs = track.durationSeconds * 1000L,
+                        currentArtStyle = track.animatedStyle
+                    )
+                }
+                if (isPlaying) {
+                    play(ctx)
+                    if (positionMs > 400L) {
+                        scope.launch {
+                            delay(350L)
+                            audioEngine?.seekTo(positionMs)
+                        }
+                    }
+                } else {
+                    pause(ctx)
+                }
+            } else {
+                if (isPlaying && !_playbackState.value.isPlaying) {
+                    audioEngine?.resume(track)
+                    _playbackState.update { it.copy(isPlaying = true) }
+                    startProgressTracking()
+                } else if (!isPlaying && _playbackState.value.isPlaying) {
+                    pause(ctx)
+                }
+                if (kotlin.math.abs(_playbackState.value.currentPositionMs - positionMs) > 600L) {
+                    seekTo(positionMs)
+                }
+            }
+        } finally {
+            suppressRoomBroadcast = false
+        }
+    }
+
+    fun applySyncedPause(positionMs: Long, context: Context? = null) {
+        suppressRoomBroadcast = true
+        try {
+            pause(context)
+            if (positionMs >= 0L) {
+                seekTo(positionMs)
+            }
+        } finally {
+            suppressRoomBroadcast = false
+        }
+    }
+
+    fun applySyncedSeek(positionMs: Long, isPlaying: Boolean, context: Context? = null) {
+        suppressRoomBroadcast = true
+        try {
+            seekTo(positionMs)
+            if (isPlaying && !_playbackState.value.isPlaying) {
+                togglePlayPause(context)
+            } else if (!isPlaying && _playbackState.value.isPlaying) {
+                pause(context)
+            }
+        } finally {
+            suppressRoomBroadcast = false
         }
     }
 

@@ -48,6 +48,9 @@ import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.R
 import com.example.model.AppThemeMode
+import com.example.model.BluetoothRoomState
+import com.example.model.Track
+import com.example.ui.components.BluetoothRoomCard
 import com.example.ui.theme.AccentOrange
 import com.example.ui.theme.MorningAmber
 import com.example.ui.theme.PlusBlue
@@ -56,12 +59,24 @@ import com.example.ui.theme.PlusViolet
 /**
  * Settings screen for ASD MUSIC featuring:
  * - Theme Mode Switcher (Day, Morning, Dark)
+ * - Multi-Device Bluetooth Room ("Listen Together Room")
  * - App Version card (v4.8) at the bottom
  */
 @Composable
 fun SettingsScreen(
     themeMode: AppThemeMode = AppThemeMode.DAY,
     onSelectThemeMode: (AppThemeMode) -> Unit = {},
+    roomState: BluetoothRoomState = BluetoothRoomState(),
+    tracks: List<Track> = emptyList(),
+    currentTrack: Track? = null,
+    isPlaying: Boolean = false,
+    onRefreshBluetoothStatus: () -> Unit = {},
+    onCreateRoom: () -> Unit = {},
+    onJoinRoom: (String) -> Unit = {},
+    onStartRoom: () -> Unit = {},
+    onPlayTrackInRoom: (Track) -> Unit = {},
+    onLeaveRoom: () -> Unit = {},
+    onClearRoomError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -206,6 +221,23 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Multi-Device Simultaneous Playback via Bluetooth Room
+        BluetoothRoomCard(
+            roomState = roomState,
+            tracks = tracks,
+            currentTrack = currentTrack,
+            isPlaying = isPlaying,
+            onRefreshBluetoothStatus = onRefreshBluetoothStatus,
+            onCreateRoom = onCreateRoom,
+            onJoinRoom = onJoinRoom,
+            onStartRoom = onStartRoom,
+            onPlayTrackInRoom = onPlayTrackInRoom,
+            onLeaveRoom = onLeaveRoom,
+            onClearError = onClearRoomError
+        )
 
         Spacer(modifier = Modifier.weight(1f, fill = true))
         Spacer(modifier = Modifier.height(20.dp))

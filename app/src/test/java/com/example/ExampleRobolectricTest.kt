@@ -211,4 +211,79 @@ class ExampleRobolectricTest {
     assertEquals("https://youtu.be/dQw4w9WgXcQ?si=test", extractedYt)
     assertEquals(com.example.data.LinkSource.YOUTUBE, com.example.data.LinkDetector.detectSource(extractedYt!!))
   }
+
+  @Test
+  fun `bluetooth room generates valid 5-digit codes and encodes sync protocol`() {
+    repeat(20) {
+      val code = com.example.bluetooth.BluetoothRoomManager.generateFiveDigitCode()
+      assertEquals(5, code.length)
+      assertTrue(code.all { it.isDigit() })
+      assertTrue(com.example.bluetooth.BluetoothRoomManager.isValidRoomCode(code))
+    }
+
+    assertEquals(false, com.example.bluetooth.BluetoothRoomManager.isValidRoomCode("1234"))
+    assertEquals(false, com.example.bluetooth.BluetoothRoomManager.isValidRoomCode("12a45"))
+
+    val members = listOf(
+      com.example.model.RoomMember(id = "host_1", name = "Pixel (Host)", isHost = true),
+      com.example.model.RoomMember(id = "guest_1", name = "Galaxy S24", isHost = false),
+      com.example.model.RoomMember(id = "guest_2", name = "OnePlus 12", isHost = false)
+    )
+    val welcomeJson = org.json.JSONObject(
+      com.example.bluetooth.BluetoothRoomManager.RoomProtocol.encodeWelcome(
+        code = "54321",
+        phase = com.example.model.RoomPhase.LOBBY,
+        members = members
+      )
+    )
+    assertEquals("WELCOME", welcomeJson.getString("type"))
+    assertEquals("54321", welcomeJson.getString("code"))
+    val parsedMembers = com.example.bluetooth.BluetoothRoomManager.RoomProtocol.parseMembersArray(
+      welcomeJson.getJSONArray("members")
+    )
+    assertEquals(3, parsedMembers.size)
+    assertEquals("Galaxy S24", parsedMembers[1].name)
+
+    val testTrack = com.example.model.Track(
+      id = "sync_t1",
+      title = "Sunset Rhythm",
+      artist = "Asd Acoustic",
+      durationSeconds = 195
+    )
+    val syncPlayJson = org.json.JSONObject(
+      com.example.bluetooth.BluetoothRoomManager.RoomProtocol.encodeSyncPlay(
+        track = testTrack,
+        positionMs = 12500L,
+        speed = 1.25f,
+        isPlaying = true,
+        syncDelayMs = 220L
+      )
+    )
+    val parsedCmd = com.example.bluetooth.BluetoothRoomManager.RoomProtocol.parseSyncCommand(syncPlayJson)
+    assertNotNull(parsedCmd)
+    assertEquals("SYNC_PLAY", parsedCmd?.action)
+    assertEquals("Sunset Rhythm", parsedCmd?.title)
+    assertEquals(12500L, parsedCmd?.positionMs)
+    assertEquals(1.25f, parsedCmd?.speed ?: 0f, 0.01f)
+  }
+
+  @Test
+  fun `music playback service starts cleanly with MediaStyle notification`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    PlaybackManager.initialize(context)
+    val track = com.example.model.Track(
+      id = "notif_track_1",
+      title = "Asd Acoustic Melody",
+      artist = "Asd Studio",
+      durationSeconds = 180
+    )
+    PlaybackManager.playTrack(track, listOf(track), context)
+
+    val controller = org.robolectric.Robolectric.buildService(com.example.service.MusicPlaybackService::class.java)
+      .create()
+      .startCommand(0, 0)
+    val service = controller.get()
+    assertNotNull(service)
+    controller.destroy()
+  }
 }
